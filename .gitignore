@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# AI Studio / ZCode tool artifacts (kept on disk, not committed)
+.aistudio/
+.zcode/
+public/assets/aistudio/

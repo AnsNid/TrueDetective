@@ -1,0 +1,6 @@
+{
+  "name": "真探 - 海外涉华信息智能核查平台",
+  "description": "海外涉华信息智能核查平台工作台，提供线索追踪、九环节核查漏斗、信源可信度分析及多维数据统计。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

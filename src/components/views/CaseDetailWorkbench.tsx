@@ -1,0 +1,1125 @@
+import React, { useState } from 'react';
+import {
+  ArrowLeft,
+  CheckCircle2,
+  Clock,
+  AlertCircle,
+  Play,
+  RefreshCw,
+  FileDown,
+  Trash2,
+  ExternalLink,
+  ShieldCheck,
+  Layers,
+  Search,
+  FileText,
+  Check,
+  AlertTriangle,
+  UserCheck,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Sparkles,
+  Plus,
+  Eye,
+  Info,
+} from 'lucide-react';
+import {
+  FullCaseDetail,
+  CaseClaim,
+  CaseEvidence,
+  INITIAL_CASE_DETAILS,
+  ReviewRecord,
+} from '../../data/caseDetailsData';
+import { AuthenticatedUser } from '../LoginPage';
+
+interface CaseDetailWorkbenchProps {
+  caseId: string;
+  currentUser: AuthenticatedUser;
+  onBack: () => void;
+  onDeleteCase?: (caseId: string) => void;
+  onUpdateCaseStatus?: (caseId: string, status: string, conclusion: string) => void;
+}
+
+export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
+  caseId,
+  currentUser,
+  onBack,
+  onDeleteCase,
+  onUpdateCaseStatus,
+}) => {
+  // Retrieve or fallback case details
+  const [caseData, setCaseData] = useState<FullCaseDetail>(() => {
+    if (INITIAL_CASE_DETAILS[caseId]) {
+      return JSON.parse(JSON.stringify(INITIAL_CASE_DETAILS[caseId]));
+    }
+    // Default fallback template for any case ID
+    return {
+      id: 99,
+      case_no: caseId,
+      title: `海外涉华信息核查任务 (${caseId})`,
+      status: 'reporting',
+      stage: 8,
+      stage_name: '报告生成',
+      priority: '中',
+      assignee: currentUser.displayName,
+      final_conclusion: '误导',
+      screening_result: {
+        passed: true,
+        score: 92,
+        hit_keywords: ['中国', '涉华报道', '言论'],
+        reason: '内容包含具体可查证的涉华外宣指控，且涉及官方机构表态，符合深度核查标准。',
+        focus: '涉华舆情动态',
+        method: 'llm',
+        checked_at: new Date().toISOString(),
+      },
+      keywords: {
+        zh: '涉华报道 官方表态 事实核查',
+        en: 'China statement verification report analysis',
+        zh_official: '外交部 国防部 官方声明 新华社',
+      },
+      search_results: [],
+      trace_results: [],
+      source_evals: [],
+      running_log: [
+        { stage: 2, name: '价值初筛', ok: true, detail: '得分92，通过' },
+        { stage: 3, name: '主张拆解', ok: true, detail: '拆解 2 项主张' },
+        { stage: 4, name: '多语种检索', ok: true, detail: '检索到 6 条结果' },
+        { stage: 5, name: '出处追踪', ok: true, detail: '溯源完成' },
+        { stage: 6, name: '交叉验证', ok: true, detail: '证据 6 条，独立信源 5 个' },
+        { stage: 7, name: '信源评价', ok: true, detail: '完成 5 个信源六维评定' },
+        { stage: 8, name: '报告生成', ok: true, detail: '结论：误导' },
+      ],
+      clue: {
+        id: 99,
+        clue_no: `CLUE-${caseId}`,
+        title: `海外涉华信息核查任务 (${caseId})`,
+        content_type: 'text',
+        raw_text:
+          'Foreign media reported unverified claims regarding border movements, alleging systematic policy changes without primary official documents.',
+        translated_text:
+          '外媒援引未经证实的信息报道称边境管控发生变动，并声称存在系统性政策调整，但未附带原始官方文件。',
+        source_platform: '外媒报道',
+        source_account: '@GlobalWatch',
+        source_link: 'https://example.com/news/china-report',
+        published_at: '2026-10-18 14:00',
+        submitted_by: currentUser.displayName,
+        media_path: '',
+        image_url: '',
+      },
+      claims: [
+        {
+          id: 101,
+          text: '外媒称政策变动构成系统性限制，指责中方行动缺乏透明度',
+          type: 'allegation',
+          elements: {
+            '人物/主体': '外媒与匿名消息源',
+            地点: '国际空域/边境区域',
+            事件: '报道涉华管控举措',
+            定性用语: '系统性限制、缺乏透明度',
+          },
+        },
+        {
+          id: 102,
+          text: '中方官方发言人召开例行记者会，重申依法依规处置合情合理',
+          type: 'fact',
+          elements: {
+            '人物/主体': '中方发言人',
+            地点: '北京',
+            事件: '例行记者会正式驳斥',
+            定性用语: '合法合规、专业规范',
+          },
+        },
+      ],
+      evidence: [
+        {
+          id: 201,
+          name: '官方发言人就有关涉华不实言论答记者问',
+          source_org: '官方机构',
+          source_type: '中方官方',
+          publish_date: '2026-10-19',
+          url: 'https://example.gov.cn/spokesperson-reply',
+          relation: '支持',
+          reliability: '高',
+          note: '中方处置符合国际法准则，有关外媒炒作严重失实。',
+          is_independent: 1,
+        },
+      ],
+      report: {
+        id: 99,
+        preliminary_conclusion:
+          '指控层缺乏事实证据支持，中方官方权威实录事实清晰，属于片面采信与语境剥离导致的误导。',
+        summary:
+          '经综合多语种检索与交叉比对，外媒所称内容忽略中方公布的原始事实背景，主观定性多于事实依据，最终判定为“误导”。',
+        conclusion: '误导',
+        confidence: '高',
+        evidence_table: [],
+        source_links: [],
+        gaps: ['缺乏外媒所述一手技术监测数据'],
+        pending_items: ['核实原始发布时间戳与外媒转载衍生链条'],
+        generated_at: new Date().toISOString(),
+      },
+      reviews: [],
+    };
+  });
+
+  // State for interactive execution
+  const [isRunningAll, setIsRunningAll] = useState(false);
+  const [runningStepMsg, setRunningStepMsg] = useState<string | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showLogDrawer, setShowLogDrawer] = useState(false);
+
+  // Review Form States
+  const [reviewerName, setReviewerName] = useState(currentUser.displayName || '张明');
+  const [reviewAction, setReviewAction] = useState<'approved' | 'revised' | 'returned'>('approved');
+  const [reviewComment, setReviewComment] = useState('');
+  const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({
+    '打开原始账号核对发布日期': true,
+    '确认传播语境是否暗示近期事件': true,
+    '补充中文官方信源': true,
+  });
+
+  // Trigger feedback toast
+  const triggerToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage((prev) => (prev === msg ? null : prev));
+    }, 3200);
+  };
+
+  // Pipeline step definitions
+  const STAGES = [
+    { num: 1, name: '线索接收' },
+    { num: 2, name: '价值初筛' },
+    { num: 3, name: '主张拆解' },
+    { num: 4, name: '多语种检索' },
+    { num: 5, name: '出处追踪' },
+    { num: 6, name: '交叉验证' },
+    { num: 7, name: '信源评价' },
+    { num: 8, name: '报告生成' },
+    { num: 9, name: '人工审核' },
+  ];
+
+  // One-click Auto Verification (Steps 2-8)
+  const handleRunAutoPipeline = async () => {
+    if (isRunningAll) return;
+    setIsRunningAll(true);
+    triggerToast('开始执行全流程自动核查（环节 2-8）...');
+
+    const stepSequence = [
+      { step: 2, name: '价值初筛', detail: '得分95，通过分级初筛' },
+      { step: 3, name: '主张拆解', detail: '已拆解事实层与指控层主张' },
+      { step: 4, name: '多语种检索', detail: '完成中英文权威信源检索' },
+      { step: 5, name: '出处追踪', detail: '溯源分析完毕，锁定首发时间' },
+      { step: 6, name: '交叉验证', detail: '多源交叉互证，建立证据矩阵' },
+      { step: 7, name: '信源评价', detail: '完成信源六维资质评级 (A/B/C)' },
+      { step: 8, name: '报告生成', detail: `生成完整核查报告，结论：${caseData.final_conclusion || '误导'}` },
+    ];
+
+    for (const s of stepSequence) {
+      setRunningStepMsg(`正在执行: 环节 ${s.step} · ${s.name}...`);
+      await new Promise((r) => setTimeout(r, 600));
+      setCaseData((prev) => {
+        const nextLogs = prev.running_log.filter((l) => l.stage !== s.step);
+        nextLogs.push({ stage: s.step, name: s.name, ok: true, detail: s.detail });
+        return {
+          ...prev,
+          stage: s.step,
+          stage_name: s.name,
+          status: s.step === 8 ? 'reporting' : 'running',
+          running_log: nextLogs,
+        };
+      });
+    }
+
+    setRunningStepMsg(null);
+    setIsRunningAll(false);
+    triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
+  };
+
+  // Re-run single step
+  const handleRerunStep = (stepNum: number, stepName: string) => {
+    triggerToast(`正在重新执行环节 ${stepNum}：${stepName}...`);
+    setTimeout(() => {
+      setCaseData((prev) => {
+        const nextLogs = prev.running_log.filter((l) => l.stage !== stepNum);
+        nextLogs.push({
+          stage: stepNum,
+          name: stepName,
+          ok: true,
+          detail: `手动更新完毕 (${new Date().toLocaleTimeString()})`,
+        });
+        return {
+          ...prev,
+          running_log: nextLogs,
+        };
+      });
+      triggerToast(`环节 ${stepNum} (${stepName}) 重新计算完成！`);
+    }, 700);
+  };
+
+  // Submit Human Review (Stage 9)
+  const handleSubmitReview = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewComment.trim()) {
+      triggerToast('请填写审核意见');
+      return;
+    }
+
+    const selectedCheckItems = Object.entries(checkItems)
+      .filter(([_, checked]) => checked)
+      .map(([key]) => key);
+
+    const newReview: ReviewRecord = {
+      id: Date.now(),
+      reviewer: reviewerName,
+      action: reviewAction,
+      comment: reviewComment,
+      check_items: selectedCheckItems,
+      reviewed_at: new Date().toLocaleString('zh-CN'),
+    };
+
+    const isDone = reviewAction === 'approved';
+    const nextStatus = isDone ? 'done' : 'running';
+    const nextStage = isDone ? 9 : 8;
+    const nextStageName = isDone ? '已结案' : '报告生成';
+
+    setCaseData((prev) => ({
+      ...prev,
+      status: nextStatus,
+      stage: nextStage,
+      stage_name: nextStageName,
+      reviews: [newReview, ...prev.reviews],
+    }));
+
+    setReviewComment('');
+    triggerToast(
+      isDone ? '审核通过！案件已结案归档。' : '审核记录已保存，案件已退回/标记修改。'
+    );
+
+    if (onUpdateCaseStatus) {
+      onUpdateCaseStatus(
+        caseData.case_no,
+        isDone ? '已结案' : '进行中',
+        caseData.final_conclusion
+      );
+    }
+  };
+
+  // Copy text helper
+  const handleCopyText = (text: string) => {
+    navigator.clipboard.writeText(text);
+    triggerToast('已复制到剪贴板');
+  };
+
+  // Print/Export PDF
+  const handleExportPdf = () => {
+    triggerToast('已生成核查简报 PDF，正在调用打印/导出...');
+    window.print();
+  };
+
+  return (
+    <div className="space-y-4 pb-12">
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed top-14 right-6 z-50 px-4 py-2.5 rounded-lg bg-[#0F172A] text-white text-[12px] shadow-xl flex items-center gap-2 border border-slate-700 animate-in fade-in slide-in-from-top-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
+          <button
+            onClick={() => setToastMessage(null)}
+            className="ml-3 text-slate-400 hover:text-white text-xs cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Top Breadcrumb & Action Bar */}
+      <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11.5px] font-medium transition-colors cursor-pointer"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            返回列表
+          </button>
+          <div className="h-4 w-[1px] bg-slate-200"></div>
+          <span className="text-[12px] text-slate-400">核查任务</span>
+          <span className="text-[12px] text-slate-300">/</span>
+          <span className="text-[12px] text-slate-500">案件详情</span>
+          <span className="text-[12px] text-slate-300">/</span>
+          <span className="font-mono text-[12px] font-bold text-[#2563EB]">
+            {caseData.case_no}
+          </span>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={handleRunAutoPipeline}
+            disabled={isRunningAll}
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white shadow-xs transition-colors cursor-pointer ${
+              isRunningAll
+                ? 'bg-blue-400 cursor-not-allowed'
+                : 'bg-[#2563EB] hover:bg-blue-700'
+            }`}
+          >
+            {isRunningAll ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Play className="w-3.5 h-3.5" />
+            )}
+            一键自动核查 (环节 2-8)
+          </button>
+
+          <button
+            onClick={handleExportPdf}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg text-[12px] font-medium transition-colors cursor-pointer"
+          >
+            <FileDown className="w-3.5 h-3.5 text-slate-500" />
+            导出报告 (PDF)
+          </button>
+
+          {onDeleteCase && (
+            <button
+              onClick={() => {
+                if (window.confirm(`确定删除案件 ${caseData.case_no} 吗？`)) {
+                  onDeleteCase(caseData.case_no);
+                  onBack();
+                }
+              }}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-[12px] transition-colors cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              删除
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Case Header Meta Card */}
+      <div className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs space-y-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1.5 flex-1 min-w-[280px]">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[12px] font-bold text-slate-500">
+                {caseData.case_no}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                  caseData.priority === '高'
+                    ? 'bg-rose-50 text-rose-600 border-rose-200'
+                    : 'bg-blue-50 text-blue-600 border-blue-200'
+                }`}
+              >
+                优先级: {caseData.priority}
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                负责人: {caseData.assignee || '未指派'}
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                  caseData.status === 'done'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-amber-50 text-amber-700 border-amber-200'
+                }`}
+              >
+                {caseData.status === 'done' ? '已结案' : `进行中 · 环节 ${caseData.stage}/9`}
+              </span>
+              <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-amber-500 text-white shadow-xs">
+                结论: {caseData.final_conclusion}
+              </span>
+            </div>
+            <h1 className="text-[17px] sm:text-[19px] font-extrabold text-[#0F172A] leading-snug">
+              {caseData.title}
+            </h1>
+          </div>
+
+          {/* Quick Rerun Individual Steps */}
+          <div className="flex flex-wrap items-center gap-1.5 text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-200">
+            <span className="text-slate-400 font-medium mr-1">单环节重算:</span>
+            <button
+              onClick={() => handleRerunStep(2, '价值初筛')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              2.初筛
+            </button>
+            <button
+              onClick={() => handleRerunStep(3, '主张拆解')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              3.拆解
+            </button>
+            <button
+              onClick={() => handleRerunStep(4, '多语种检索')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              4.检索
+            </button>
+            <button
+              onClick={() => handleRerunStep(5, '出处追踪')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              5.出处
+            </button>
+            <button
+              onClick={() => handleRerunStep(6, '交叉验证')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              6.交叉
+            </button>
+            <button
+              onClick={() => handleRerunStep(7, '信源评价')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              7.信源
+            </button>
+            <button
+              onClick={() => handleRerunStep(8, '报告生成')}
+              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
+            >
+              8.报告
+            </button>
+          </div>
+        </div>
+
+        {/* 9-Node Pipeline Step Indicator */}
+        <div className="pt-2 border-t border-slate-100">
+          <div className="text-[11px] font-semibold text-slate-500 mb-2.5 flex items-center justify-between">
+            <span>9 环节推进全流程</span>
+            {runningStepMsg && (
+              <span className="text-blue-600 font-bold flex items-center gap-1.5 animate-pulse">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                {runningStepMsg}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-3 sm:grid-cols-9 gap-1.5 sm:gap-2">
+            {STAGES.map((s) => {
+              const isPast = caseData.stage > s.num;
+              const isCurrent = caseData.stage === s.num;
+              return (
+                <div
+                  key={s.num}
+                  className={`p-2 rounded-lg border text-center transition-all ${
+                    isCurrent
+                      ? 'bg-blue-50 border-blue-500 shadow-xs ring-1 ring-blue-500/30'
+                      : isPast
+                      ? 'bg-slate-50 border-slate-200 text-slate-800'
+                      : 'bg-white border-dashed border-slate-200 text-slate-400 opacity-70'
+                  }`}
+                >
+                  <div className="flex items-center justify-center gap-1 mb-0.5">
+                    {isPast ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-600" />
+                    ) : isCurrent ? (
+                      <span className="w-3.5 h-3.5 rounded-full bg-blue-600 text-white text-[9px] font-bold flex items-center justify-center animate-pulse">
+                        {s.num}
+                      </span>
+                    ) : (
+                      <span className="w-3.5 h-3.5 rounded-full bg-slate-200 text-slate-500 text-[9px] font-bold flex items-center justify-center">
+                        {s.num}
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className={`text-[11px] truncate font-medium ${
+                      isCurrent ? 'text-blue-700 font-bold' : isPast ? 'text-slate-700' : 'text-slate-400'
+                    }`}
+                  >
+                    {s.name}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Live Running Log Drawer Toggle */}
+        <div className="pt-2">
+          <button
+            onClick={() => setShowLogDrawer(!showLogDrawer)}
+            className="flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-slate-800 font-medium cursor-pointer"
+          >
+            <span>流水日志 ({caseData.running_log.length} 条)</span>
+            {showLogDrawer ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+
+          {showLogDrawer && (
+            <div className="mt-2.5 p-3 bg-slate-900 text-slate-200 rounded-lg font-mono text-[11px] space-y-1.5 max-h-48 overflow-y-auto">
+              {caseData.running_log.map((log, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <span className="text-emerald-400">✓ [环节{log.stage} · {log.name}]</span>
+                  <span className="text-slate-300">{log.detail}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Grid: Main Investigation Panels */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        {/* Left Column (8 cols): Evidence, Claims, Report */}
+        <div className="lg:col-span-8 space-y-4">
+          {/* Card 1: 待核查材料 */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h2 className="text-[13px] font-bold text-[#0F172A] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                待核查原始材料
+              </h2>
+              <div className="flex items-center gap-2 text-[11px] text-slate-400">
+                <span>{caseData.clue.source_platform || '外网来源'}</span>
+                {caseData.clue.source_account && (
+                  <span className="font-mono text-slate-600">{caseData.clue.source_account}</span>
+                )}
+                {caseData.clue.source_link && (
+                  <a
+                    href={caseData.clue.source_link}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-blue-600 hover:underline flex items-center gap-0.5"
+                  >
+                    原文链接 <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+
+            {/* Raw Text Box */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                <span>原文内容 ({caseData.clue.content_type === 'image' ? '图片线索说明' : '外文原文'})</span>
+                <button
+                  onClick={() => handleCopyText(caseData.clue.raw_text)}
+                  className="flex items-center gap-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                >
+                  <Copy className="w-3 h-3" /> 复制
+                </button>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-[12px] leading-relaxed text-slate-800 font-serif whitespace-pre-wrap">
+                {caseData.clue.raw_text}
+              </div>
+            </div>
+
+            {/* Translated Text Box (if text) */}
+            {caseData.clue.translated_text && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
+                  <span>中文对照翻译 (LLM 自动译文)</span>
+                  <button
+                    onClick={() => handleCopyText(caseData.clue.translated_text)}
+                    className="flex items-center gap-1 text-slate-400 hover:text-blue-600 cursor-pointer"
+                  >
+                    <Copy className="w-3 h-3" /> 复制
+                  </button>
+                </div>
+                <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-100 text-[12px] leading-relaxed text-slate-800 whitespace-pre-wrap">
+                  {caseData.clue.translated_text}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Card 2: 价值初筛 & 图片真实性核查 */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h2 className="text-[13px] font-bold text-[#0F172A] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                环节 2 · 价值初筛结论
+              </h2>
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                初筛得分: {caseData.screening_result.score}/100 · 通过
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11.5px]">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1">
+                <div className="text-slate-400 text-[10.5px]">关注领域</div>
+                <div className="font-bold text-slate-800">{caseData.screening_result.focus}</div>
+                <div className="text-slate-500 text-[10.5px] mt-1">
+                  评定方式: {caseData.screening_result.method.toUpperCase()} 智能初筛
+                </div>
+              </div>
+
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1">
+                <div className="text-slate-400 text-[10.5px]">命中敏感关键词</div>
+                <div className="flex flex-wrap gap-1 mt-1">
+                  {caseData.screening_result.hit_keywords.map((kw, i) => (
+                    <span
+                      key={i}
+                      className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 text-[10px] font-medium"
+                    >
+                      {kw}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="text-[12px] text-slate-700 bg-slate-50/70 p-3 rounded-lg border border-slate-200/60 leading-relaxed">
+              <span className="font-bold text-slate-800">初筛理由: </span>
+              {caseData.screening_result.reason}
+            </div>
+
+            {/* If Image Clue: Image Authenticity Analysis */}
+            {caseData.screening_result.image_analysis && (
+              <div className="mt-3 p-3.5 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-purple-900 text-[12px] flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-purple-600" />
+                    多模态图片真实性检测
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-purple-600 text-white font-bold text-[10.5px]">
+                    判定: {caseData.screening_result.image_analysis.suspected === 'ai_generated' ? '疑似AI生成' : '旧图二次剪辑'}
+                  </span>
+                </div>
+                <p className="text-[11.5px] text-slate-700 leading-relaxed">
+                  <span className="font-semibold text-slate-800">画面场景: </span>
+                  {caseData.screening_result.image_analysis.scene_description}
+                </p>
+                <div className="text-[11.5px] text-slate-700">
+                  <span className="font-semibold text-slate-800">可疑特征点:</span>
+                  <ul className="list-disc list-inside mt-1 space-y-1 text-slate-600">
+                    {caseData.screening_result.image_analysis.authenticity_clues.map((clue, idx) => (
+                      <li key={idx}>{clue}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Card 3: 事实主张拆解 (Stage 3) */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                <h2 className="text-[13px] font-bold text-[#0F172A]">
+                  环节 3 · 事实主张拆解 ({caseData.claims.length} 项)
+                </h2>
+              </div>
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <span className="px-1.5 py-0.5 rounded bg-rose-50 text-rose-600 border border-rose-200 font-medium">
+                  指控表述 ★
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-200 font-medium">
+                  事实主张
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-600 border border-purple-200 font-medium">
+                  观点表达
+                </span>
+              </div>
+            </div>
+
+            {caseData.claims.length === 0 ? (
+              <div className="py-6 text-center text-[12px] text-slate-400">
+                当前线索为纯图片溯源，无文字主张拆解。
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {caseData.claims.map((claim) => (
+                  <div
+                    key={claim.id}
+                    className="p-3.5 rounded-xl border border-slate-200 bg-slate-50/40 space-y-2.5"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[11px] font-bold text-slate-400">
+                          #{claim.id}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[10.5px] font-bold ${
+                            claim.type === 'allegation'
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-blue-100 text-blue-700'
+                          }`}
+                        >
+                          {claim.type === 'allegation' ? '指控表述 ★' : '事实主张'}
+                        </span>
+                      </div>
+                      <span className="text-[10.5px] text-slate-400">自动要素抽取</span>
+                    </div>
+
+                    <div className="text-[12px] font-medium text-slate-800 leading-relaxed">
+                      {claim.text}
+                    </div>
+
+                    {/* Decomposed 5W1H Elements */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-slate-200/60 text-[11px]">
+                      {Object.entries(claim.elements).map(([key, val]) => (
+                        <div key={key} className="bg-white p-2 rounded border border-slate-200/70">
+                          <span className="text-slate-400 text-[10px] block">{key}</span>
+                          <span className="font-medium text-slate-700 mt-0.5 block truncate">
+                            {val || '——'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Card 4: 证据矩阵与交叉验证 (Stage 6) */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                <h2 className="text-[13px] font-bold text-[#0F172A]">
+                  环节 6 · 证据矩阵与交叉验证 ({caseData.evidence.length} 条)
+                </h2>
+              </div>
+              <div className="text-[11px] text-slate-500">
+                支持: <span className="font-bold text-emerald-600">2</span> · 反驳: <span className="font-bold text-rose-600">0</span> · 背景: <span className="font-bold text-slate-600">6</span>
+              </div>
+            </div>
+
+            {/* Evidence Matrix Table */}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-left text-[11.5px] text-slate-600">
+                <thead className="bg-slate-50 text-[11px] text-slate-500 font-semibold border-b border-slate-200">
+                  <tr>
+                    <th className="py-2.5 px-3">信源机构</th>
+                    <th className="py-2.5 px-3 min-w-[220px]">证据标题 / 链接</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">信源类型</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">关系</th>
+                    <th className="py-2.5 px-3 whitespace-nowrap">可信度</th>
+                    <th className="py-2.5 px-3 min-w-[160px]">摘要核心</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {caseData.evidence.map((ev) => (
+                    <tr key={ev.id} className="hover:bg-slate-50/80">
+                      <td className="py-2.5 px-3 font-medium text-slate-800 whitespace-nowrap">
+                        {ev.source_org}
+                      </td>
+                      <td className="py-2.5 px-3">
+                        {ev.url ? (
+                          <a
+                            href={ev.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-blue-600 hover:underline flex items-center gap-1 font-medium line-clamp-1"
+                          >
+                            {ev.name} <ExternalLink className="w-3 h-3 shrink-0" />
+                          </a>
+                        ) : (
+                          <span className="font-medium text-slate-700">{ev.name}</span>
+                        )}
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                          {ev.publish_date || '未注明发布日期'}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700">
+                          {ev.source_type}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                            ev.relation === '支持'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : ev.relation === '反驳'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          {ev.relation}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-3 whitespace-nowrap font-medium text-emerald-600">
+                        {ev.reliability}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-500 text-[11px] line-clamp-2">
+                        {ev.note}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Card 5: 智能核查报告 (Stage 8) */}
+          {caseData.report && (
+            <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                  <h2 className="text-[13px] font-bold text-[#0F172A]">
+                    环节 8 · 智能事实核查报告
+                  </h2>
+                </div>
+                <div className="flex items-center gap-2 text-[11px]">
+                  <span className="px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                    初步结论: {caseData.report.conclusion}
+                  </span>
+                  <span className="text-slate-400">置信度: {caseData.report.confidence}</span>
+                </div>
+              </div>
+
+              {/* Preliminary Conclusion Banner */}
+              <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-100 text-[12px] leading-relaxed text-slate-800 space-y-1.5">
+                <div className="font-bold text-[#2563EB] flex items-center gap-1.5 text-[12.5px]">
+                  <FileText className="w-3.5 h-3.5" />
+                  核查综述与结论定性
+                </div>
+                <p className="text-slate-700">{caseData.report.summary}</p>
+                <div className="text-[11.5px] text-slate-600 pt-1 border-t border-blue-100/80">
+                  <span className="font-semibold text-slate-800">判定依据: </span>
+                  {caseData.report.preliminary_conclusion}
+                </div>
+              </div>
+
+              {/* Evidence Gaps & Pending Items */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11.5px]">
+                <div className="p-3 bg-amber-50/40 rounded-lg border border-amber-200/60">
+                  <div className="font-bold text-amber-800 mb-1 flex items-center gap-1">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    证据缺失项 (Gaps)
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600 text-[11px]">
+                    {caseData.report.gaps.map((gap, i) => (
+                      <li key={i}>{gap}</li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="p-3 bg-blue-50/40 rounded-lg border border-blue-200/60">
+                  <div className="font-bold text-blue-800 mb-1 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    建议人工复核事项
+                  </div>
+                  <ul className="list-disc list-inside space-y-1 text-slate-600 text-[11px]">
+                    {caseData.report.pending_items.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column (4 cols): Source Evaluation, Human Review Form & History */}
+        <div className="lg:col-span-4 space-y-4">
+          {/* Card: 信源六维评价 (Stage 7) */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+              <h3 className="text-[12.5px] font-bold text-[#0F172A] flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                环节 7 · 信源六维评级
+              </h3>
+              <span className="text-[10px] text-slate-400">A/B/C 三级</span>
+            </div>
+
+            {caseData.source_evals.length === 0 ? (
+              <div className="py-4 text-center text-[11px] text-slate-400">
+                引用官方中方信源，自动评定为 A 级信源。
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {caseData.source_evals.map((se) => (
+                  <div
+                    key={se.evidence_id}
+                    className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2 text-[11px]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 truncate max-w-[180px]">
+                        {se.source_org}
+                      </span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                          se.grade === 'A'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : se.grade === 'B'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {se.grade} 级信源
+                      </span>
+                    </div>
+
+                    {/* 6 dimensions mini grid */}
+                    <div className="grid grid-cols-3 gap-1 text-[10px] text-slate-500">
+                      <div>接近度: <b className="text-slate-700">{se.dimensions.接近事件程度}</b></div>
+                      <div>专业性: <b className="text-slate-700">{se.dimensions.专业性}</b></div>
+                      <div>透明度: <b className="text-slate-700">{se.dimensions.透明度}</b></div>
+                      <div>时效性: <b className="text-slate-700">{se.dimensions.时效性}</b></div>
+                      <div>立场: <b className="text-slate-700">{se.dimensions.立场与倾向性}</b></div>
+                      <div>准确性: <b className="text-slate-700">{se.dimensions.涉华表述准确性}</b></div>
+                    </div>
+
+                    <p className="text-[10.5px] text-slate-500 leading-snug pt-1 border-t border-slate-200/50">
+                      {se.reason}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Card: 人工审核（环节 9 · 终审定论） */}
+          <div className="bg-white border-2 border-blue-500/30 rounded-xl p-4 sm:p-5 shadow-xs space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
+                <h3 className="text-[13px] font-bold text-[#0F172A]">
+                  环节 9 · 人工审核与结案
+                </h3>
+              </div>
+              <span className="text-[11px] text-blue-600 font-semibold">
+                {caseData.status === 'done' ? '✓ 已结案归档' : '待审核终审'}
+              </span>
+            </div>
+
+            <form onSubmit={handleSubmitReview} className="space-y-3.5 text-[12px]">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  审核员
+                </label>
+                <input
+                  type="text"
+                  value={reviewerName}
+                  onChange={(e) => setReviewerName(e.target.value)}
+                  required
+                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
+                  审核决定 <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setReviewAction('approved')}
+                    className={`py-1.5 px-2 rounded-lg border text-center font-medium cursor-pointer transition-colors ${
+                      reviewAction === 'approved'
+                        ? 'bg-emerald-50 border-emerald-500 text-emerald-700 font-bold'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    通过并结案
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReviewAction('revised')}
+                    className={`py-1.5 px-2 rounded-lg border text-center font-medium cursor-pointer transition-colors ${
+                      reviewAction === 'revised'
+                        ? 'bg-blue-50 border-blue-500 text-blue-700 font-bold'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    修改后通过
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setReviewAction('returned')}
+                    className={`py-1.5 px-2 rounded-lg border text-center font-medium cursor-pointer transition-colors ${
+                      reviewAction === 'returned'
+                        ? 'bg-rose-50 border-rose-500 text-rose-700 font-bold'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    退回重做
+                  </button>
+                </div>
+              </div>
+
+              {/* Mandatory Checklist Items */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1.5">
+                  核查工作规范勾选项 (必检)
+                </label>
+                <div className="space-y-1.5 bg-slate-50 p-2.5 rounded-lg border border-slate-200/80">
+                  {Object.entries(checkItems).map(([item, checked]) => (
+                    <label
+                      key={item}
+                      className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-700"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setCheckItems((prev) => ({
+                            ...prev,
+                            [item]: e.target.checked,
+                          }))
+                        }
+                        className="rounded text-blue-600 focus:ring-0 cursor-pointer"
+                      />
+                      <span>{item}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Comment Textarea */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  审核意见 (必填) <span className="text-rose-500">*</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  placeholder="请输入终审意见，明确说明事实层与指控层核查是否严密、证据链条是否充分..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <button
+                type="submit"
+                className="w-full py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer"
+              >
+                提交终审意见并更新案件
+              </button>
+            </form>
+
+            {/* Historical Audit Trail */}
+            <div className="pt-3 border-t border-slate-100 space-y-2">
+              <span className="text-[11px] font-bold text-slate-700 block">
+                历史审核记录 ({caseData.reviews.length} 条)
+              </span>
+              {caseData.reviews.length === 0 ? (
+                <div className="text-[11px] text-slate-400 py-1">暂无审核记录</div>
+              ) : (
+                <div className="space-y-2">
+                  {caseData.reviews.map((rev) => (
+                    <div
+                      key={rev.id}
+                      className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] space-y-1"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-slate-800">{rev.reviewer}</span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                            rev.action === 'approved'
+                              ? 'bg-emerald-100 text-emerald-800'
+                              : 'bg-blue-100 text-blue-800'
+                          }`}
+                        >
+                          {rev.action === 'approved' ? '审核通过' : '修改意见'}
+                        </span>
+                      </div>
+                      <p className="text-slate-600 text-[10.5px] leading-snug">{rev.comment}</p>
+                      <div className="text-slate-400 text-[10px]">{rev.reviewed_at}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
