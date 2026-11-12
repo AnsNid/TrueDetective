@@ -12,6 +12,7 @@ import {
   Link as LinkIcon,
   Upload,
 } from 'lucide-react';
+import { api } from '../../api/client';
 
 interface CluesViewProps {
   onSuccessSubmit?: (caseId: string, caseTitle: string) => void;
@@ -42,6 +43,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
   const [submittedToast, setSubmittedToast] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [ocrDetected, setOcrDetected] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const handleTranslateLLM = () => {
     if (!content.trim()) return;
@@ -66,14 +69,38 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     setSubmittedToast(true);
-    const newCaseId = 'ZT-2026-0018';
-    if (onSuccessSubmit) {
-      onSuccessSubmit(newCaseId, title);
+    setSubmitError(null);
+    setSubmitting(true);
+    try {
+      const res = await api.createClue({
+        title: title.trim(),
+        content: content.trim(),
+        translation: translation.trim(),
+        clueType,
+        imageUrl: imageUrl.trim(),
+        platform: platform.trim(),
+        account: account.trim(),
+        publishTime: publishTime.trim(),
+        sourceUrl: sourceUrl.trim(),
+        priority,
+        assignee,
+      });
+      if (res.code === 200 && res.data?.caseNo) {
+        if (onSuccessSubmit) {
+          onSuccessSubmit(res.data.caseNo, title.trim());
+        }
+        setTimeout(() => setSubmittedToast(false), 3500);
+      } else {
+        setSubmitError(res.message || '线索提交失败,请稍后重试');
+        setSubmittedToast(false);
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setTimeout(() => setSubmittedToast(false), 3500);
   };
 
   const handleSaveDraft = () => {
@@ -90,6 +117,17 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
           <button
             onClick={() => setSubmittedToast(false)}
             className="text-emerald-800 font-semibold underline cursor-pointer"
+          >
+            知道了
+          </button>
+        </div>
+      )}
+      {submitError && (
+        <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg flex items-center justify-between shadow-sm">
+          <span>⚠ {submitError}</span>
+          <button
+            onClick={() => setSubmitError(null)}
+            className="text-red-800 font-semibold underline cursor-pointer"
           >
             知道了
           </button>
@@ -529,9 +567,10 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer"
+                  disabled={submitting}
+                  className="px-4 py-2 bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed"
                 >
-                  提交线索，创建核查任务
+                  {submitting ? '正在创建核查任务…' : '提交线索，创建核查任务'}
                 </button>
                 <button
                   type="button"

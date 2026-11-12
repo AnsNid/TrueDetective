@@ -7,22 +7,63 @@ import {
 import { getHeatmapColor } from '../utils/dashboardLogic';
 import { useElementWidth } from '../utils/useElementWidth';
 
-const WEEKLY_DATA = [
-  { week: '08-17', clues: 800, closed: 380, showMarker: true, showLabel: true },
-  { week: '08-24', clues: 900, closed: 410, showMarker: false, showLabel: false },
-  { week: '08-31', clues: 830, closed: 450, showMarker: true, showLabel: true },
-  { week: '09-07', clues: 1010, closed: 490, showMarker: false, showLabel: false },
-  { week: '09-14', clues: 1120, closed: 530, showMarker: false, showLabel: true },
-  { week: '09-21', clues: 1160, closed: 570, showMarker: false, showLabel: false },
-  { week: '09-28', clues: 1080, closed: 530, showMarker: false, showLabel: true },
-  { week: '10-05', clues: 1270, closed: 670, showMarker: true, showLabel: false },
-  { week: '10-12', clues: 1340, closed: 720, showMarker: false, showLabel: true },
-  { week: '10-19', clues: 1390, closed: 750, showMarker: false, showLabel: false },
-  { week: '10-22', clues: 1490, closed: 800, showMarker: false, showLabel: false },
-  { week: '10-26', clues: 1630, closed: 870, showMarker: true, showLabel: true },
-];
+interface WeeklyTrendPoint {
+  week: string;
+  clues: number;
+  closed: number;
+  showMarker: boolean;
+  showLabel: boolean;
+}
 
-export const Row4TrendsAndHeatmap: React.FC = () => {
+interface Row4Props {
+  weeklyTrends?: { labels?: string[]; clues: number[]; closed: number[] };
+  heatmapDays?: string[];
+  heatmapMatrix?: number[][];
+}
+
+/** 由后端 12 周序列构建图表数据点,标签回退为最近 12 周日期 */
+function buildWeeklyData(trends?: {
+  labels?: string[];
+  clues: number[];
+  closed: number[];
+}): WeeklyTrendPoint[] {
+  const clues = trends?.clues?.length ? trends.clues : [800, 900, 830, 1010, 1120, 1160, 1080, 1270, 1340, 1390, 1490, 1630];
+  const closed = trends?.closed?.length
+    ? trends.closed
+    : [380, 410, 450, 490, 530, 570, 530, 670, 720, 750, 800, 870];
+  const count = clues.length;
+  // 日期标签: 以后端提供的为准; 若是 W1/W2 这类占位则按最近 12 周推算
+  const rawLabels = trends?.labels?.length ? trends.labels : [];
+  const dateLabels = rawLabels.length
+    ? rawLabels
+    : Array.from({ length: count }, (_, i) => {
+        const d = new Date(Date.now() - (count - 1 - i) * 7 * 86400000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      });
+  const looksLikePlaceholder = rawLabels.every((l) => /^W\d+$/.test(l)) && rawLabels.length > 0;
+  const labels = looksLikePlaceholder
+    ? Array.from({ length: count }, (_, i) => {
+        const d = new Date(Date.now() - (count - 1 - i) * 7 * 86400000);
+        return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      })
+    : dateLabels;
+
+  const markerSet = new Set([0, 2, 7, 11]);
+  const labelSet = new Set([0, 2, 4, 7, 9, 11]);
+  return clues.map((cluesVal, i) => ({
+    week: labels[i] ?? `W${i + 1}`,
+    clues: cluesVal,
+    closed: closed[i] ?? 0,
+    showMarker: markerSet.has(i),
+    showLabel: labelSet.has(i),
+  }));
+}
+
+export const Row4TrendsAndHeatmap: React.FC<Row4Props> = ({
+  weeklyTrends,
+  heatmapDays = HEATMAP_DAYS,
+  heatmapMatrix = HEATMAP_MATRIX,
+}) => {
   const [hoveredCell, setHoveredCell] = useState<{
     day: string;
     hour: number;
@@ -38,7 +79,9 @@ export const Row4TrendsAndHeatmap: React.FC = () => {
   const chartBottom = 132;
   const chartWidth = chartRight - chartLeft;
   const chartHeight = chartBottom - chartTop;
-  const maxVal = 2000;
+  const WEEKLY_DATA = buildWeeklyData(weeklyTrends);
+  const peak = Math.max(...WEEKLY_DATA.map((d) => Math.max(d.clues, d.closed)), 1);
+  const maxVal = Math.max(200, Math.ceil(peak / 500) * 500);
 
   const getCoord = (index: number, value: number) => {
     const x = chartLeft + (index / (WEEKLY_DATA.length - 1)) * chartWidth;
@@ -55,7 +98,10 @@ export const Row4TrendsAndHeatmap: React.FC = () => {
   const cluesArea = `${chartLeft},${chartBottom} ${cluesPolyline} ${chartRight},${chartBottom}`;
   const closedArea = `${chartLeft},${chartBottom} ${closedPolyline} ${chartRight},${chartBottom}`;
 
-  const yTicks = [2000, 1500, 1000, 500, 0];
+  const yTickSteps = 4;
+  const yTicks = Array.from({ length: yTickSteps + 1 }, (_, i) =>
+    Math.round((maxVal / yTickSteps) * (yTickSteps - i))
+  );
 
   return (
     <div className="grid grid-cols-12 lg:grid-cols-[58fr_42fr] gap-3 items-stretch">
@@ -219,13 +265,13 @@ export const Row4TrendsAndHeatmap: React.FC = () => {
 
         {/* 7x24 Grid */}
         <div className="flex flex-col justify-between space-y-[2px] sm:space-y-[2.5px]">
-          {HEATMAP_DAYS.map((day, dIdx) => (
+          {heatmapDays.map((day, dIdx) => (
             <div key={day} className="flex items-center gap-1.5 sm:gap-2">
               <span className="w-6 text-[10px] text-slate-400 shrink-0">
                 {day}
               </span>
               <div className="flex-1 grid grid-cols-24 gap-[1.5px] sm:gap-[2.5px]">
-                {HEATMAP_MATRIX[dIdx].map((level, hIdx) => (
+                {(heatmapMatrix[dIdx] ?? []).map((level, hIdx) => (
                   <div
                     key={hIdx}
                     onMouseEnter={() =>

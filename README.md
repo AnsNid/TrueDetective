@@ -10,93 +10,110 @@
 
 ---
 
-面向核查工作台的纯前端 SPA（Mock 数据演示）：覆盖线索接入、九环节核查漏斗、证据溯源、多语种交叉验证到人工审核结案的全流程可视化。
+面向核查工作台的全栈应用：前端 React SPA + 后端 X-PHP `detective` 独立服务，覆盖线索接入、九环节核查漏斗、证据溯源、多语种交叉验证到人工审核结案的全流程。
 
 ## ✨ 功能模块
 
-| 模块 | 路由 | 说明 |
-|---|---|---|
-| 工作台 | `/workbench` | 累计线索趋势、KPI 总览、待人工审核、九环节漏斗、信源可信度雷达、进行中案件 |
-| 线索中心 | `/clues` | 新建线索并一键生成核查任务 |
-| 核查任务 | `/tasks` | 任务列表检索与状态追踪 |
-| 证据库 | `/evidence` | 证据材料归档与关联案件 |
-| 历史案例 | `/history` | 已结案案例与核查报告 |
-| 知识库 | `/knowledge` | 核查规范与素材沉淀 |
-| 数据统计 | `/statistics` | 12 周趋势、成员产出、核查类型构成、来源平台分布 |
-| 用户管理 | `/users` | 成员与角色管理 |
-| 案件详情工作台 | `/cases/:caseId` | 单案件全流程核查：初筛→拆解→检索→出处→交叉→信源→报告→人工审核，支持审核结论提交与删除 |
+| 模块 | 路由 | 说明 | 后端接口 |
+|---|---|---|---|
+| 登录 | `/login` | 账号密码登录，token 会话保持 | `POST /login` |
+| 工作台 | `/workbench` | KPI 总览、待人工审核、九环节漏斗、信源可信度雷达、进行中案件、12 周趋势、24×7 热力图 | `GET /dashboard?range=` |
+| 线索中心 | `/clues` | 新建线索并自动创建核查任务(推进至环节 2) | `POST /createClue` |
+| 核查任务 | `/tasks` | 任务列表检索、筛选与状态追踪 | `GET /tasks` |
+| 案件工作台 | `/cases/:caseId` | 九环节全流程：初筛→拆解→检索→出处→交叉→信源→报告→人工审核；支持单环节重算、一键自动核查、审核结案、删除 | `GET /cases/{no}` `POST /cases/{no}/pipeline` `POST /cases/{no}/reviews` `DELETE /cases/{no}` |
+| 证据库 | `/evidence` | 证据材料归档与关联案件 | `GET /evidence` |
+| 历史案例 | `/history` | 已结案案例与核查报告 | `GET /history` |
+| 知识库 | `/knowledge` | 核查规范与素材沉淀 | `GET /knowledge` |
+| 数据统计 | `/statistics` | 概况卡片、结论分布、环节流转、成员产出、来源平台 | `GET /statistics` |
+| 用户管理 | `/users` | 成员增改、启停状态、操作审计日志 | `GET/POST /users` `PUT/DELETE /users/{id}` `GET /auditLogs` |
 
-- **登录守卫**：未登录访问任意页面会重定向到 `/login`，登录成功后自动回到原目标页；支持 `?autostart=1` 免登录直达
-- **URL 路由**：浏览器前进/后退、刷新保持、案件链接可直接分享
-- **性能优化**：路由级代码分包（每个视图独立 chunk + vendor 分组），首屏 gzip 约 95 kB
-- **响应式**：桌面固定侧边栏（sticky）、移动端抽屉菜单；图表按容器宽度自适应（ResizeObserver 动态 viewBox）
+- **真实登录**：登录/鉴权走后端 Passport,token 全局存储于 `localStorage` 的 `x-token`;401 自动清理本地会话
+- **URL 路由**：Hash 模式(`/#/workbench`),深链接可直接分享案件地址
+- **响应式**：桌面固定侧边栏、移动端抽屉菜单;图表按容器宽度自适应
 
 ## 🛠 技术栈
 
-- [React 19](https://react.dev/) + [TypeScript](https://www.typescriptlang.org/)
-- [Vite 8](https://vite.dev/)（Rolldown 内核）
-- [Tailwind CSS 4](https://tailwindcss.com/)（`@tailwindcss/vite` 插件）
-- [React Router v7](https://reactrouter.com/)（`react-router-dom`）
-- [lucide-react](https://lucide.dev/) 图标
-- 包管理：**pnpm**
+- 前端：[React 19] + [TypeScript] + [Vite 8] + [Tailwind CSS 4] + [React Router v7] + [lucide-react],包管理 **pnpm**
+- 后端：X-PHP `app/detective` 模块(Swoole 独立服务,端口 **9602**),复用 `user` 模块 Passport 登录鉴权
+- 数据：MySQL(11 张 `detective_*` 表 + 演示种子数据)
 
 ## 🚀 快速开始
 
+### 1. 启动后端(真探 detective 服务)
+
 ```bash
-# 1. 安装依赖
+cd /path/to/hyperf
+
+# 首次安装模块(建表 + 种子数据 + 注册应用)
+php index.php app detective install --database=default
+
+# 启动 detective 独立服务(端口 9602)
+php index.php start detective
+```
+
+> 后端代码改动后需 `rm -rf runtime/container` 清 DI 缓存再重启。
+> 演示账号:`zhangming@zhentan.org / Zt@2026Admin`(管理员)、`wangsisi@zhentan.org / Zt@2026Verify`(核查员)。
+
+### 2. 启动前端
+
+```bash
+cd /path/to/TrueDetective
+
 pnpm install
-
-# 2. 启动开发服务器（http://localhost:3000）
-pnpm dev
-
-# 3. 类型检查 / 生产构建 / 本地预览
-pnpm lint    # tsc --noEmit
-pnpm build   # 产出 dist/
-pnpm preview
+pnpm dev        # http://localhost:3000
 ```
 
-> 演示账号已预填，登录页直接点击「登录进入工作台」即可；跳过登录可访问 `http://localhost:3000/?autostart=1`。
->
-> 若 3000 端口被占用：`npx vite --port=3100 --strictPort`
-
-## 🔀 路由模式
-
-默认 **Hash 模式**（`/#/workbench`），任何静态托管环境可直接部署，刷新深链接永不 404。
-
-部署环境支持 SPA history fallback 时，可切换为干净 URL：
+前端开发模式默认请求 `http://127.0.0.1:9602/api`,可通过 `.env.local` 覆盖：
 
 ```bash
-# .env.local
-VITE_ROUTER_MODE=history
+VITE_API_BASE=http://127.0.0.1:9602/api   # 后端 API 地址(生产默认 /api)
+VITE_ROUTER_MODE=history                  # 可选:干净 URL(需服务器 SPA fallback)
 ```
 
-| 模式 | URL 样式 | 要求 |
-|---|---|---|
-| `hash`（默认） | `/#/tasks` | 无 |
-| `history` | `/tasks` | 服务器将未知路径 fallback 到 `index.html` |
+### 3. 构建发布
+
+```bash
+pnpm lint     # tsc --noEmit
+pnpm build    # 产出 dist/
+```
+
+> 免登录直达:`http://localhost:3000/?autostart=1`(自动使用演示账号登录)。
+
+## 🔌 API 约定
+
+- Base URI:开发 `http://127.0.0.1:9602/api`,生产 `/api`
+- 请求头:`Content-Type: application/json`,鉴权 `x-token: Bearer ${token}`
+- 统一信封:`{ code, message, data }`;`200` 成功 / `201` 业务失败 / `401` 凭证失效 / `403` 无权限
 
 ## 📁 目录结构
 
 ```
-├── index.html                  # 入口 HTML（系统字体栈，无第三方字体请求）
-├── vite.config.ts              # Vite 配置：路由分包（advancedChunks）
-├── public/                     # 静态资源
+TrueDetective/
+├── index.html                  # 入口 HTML
+├── vite.config.ts              # Vite 配置(路由分包)
 └── src/
-    ├── App.tsx                 # 路由表 + 登录守卫 + 应用壳
-    ├── main.tsx
-    ├── index.css               # Tailwind + 基础样式 + 移动端输入 16px 防缩放
+    ├── App.tsx                 # 路由表 + 登录守卫 + 仪表盘数据装配
+    ├── api/
+    │   ├── client.ts           # API 客户端(token/信封/接口列表)
+    │   └── hooks.tsx           # useApiData + 加载/错误组件
     ├── components/
-    │   ├── Sidebar.tsx         # 侧边导航（NavLink 高亮）
-    │   ├── TopBar.tsx          # 顶栏：搜索 / 时间范围 / 用户
-    │   ├── ScrollToTop.tsx     # 路由切换回顶
-    │   ├── Row1–Row4*.tsx      # 工作台各行图表卡片
-    │   └── views/              # 各路由视图 + 案件详情工作台 + WorkbenchView
-    ├── data/                   # Mock 数据（仪表盘 / 案件详情 / 线索视图）
+    │   ├── Sidebar.tsx / TopBar.tsx / Row1–Row4*.tsx
+    │   └── views/              # 各路由视图 + 案件详情工作台
+    ├── data/                   # 类型声明 + 图表加载兜底数据
     └── utils/
-        ├── dashboardLogic.ts   # 过滤与热力图配色逻辑（含单测）
+        ├── dashboardLogic.ts   # 过滤/热力图/雷达逻辑(含单测)
         └── useElementWidth.ts  # 图表宽度自适应 hook
+
+hyperf/app/detective/           # 后端模块(独立仓库目录)
+├── ConfigProvider.php          # 独立服务 9602 + 全局 CORS
+├── Controller/Api.php          # trait 组合的 REST API
+├── Controller/Api/*.php        # Dashboard/Clue/Task/Case/Evidence/... 分组
+├── Service/CaseService.php     # 案件详情装配 + 九环节流水线模拟
+├── Middleware/                 # CORS + 用户鉴权
+└── Install/install.sql         # 建表 + 种子数据
 ```
 
 ## 📄 其他
 
-- `.env.example` 中的 `GEMINI_API_KEY` / `APP_URL` 为 AI Studio 导出模板遗留，当前为纯前端 Mock 演示，未调用任何外部 API。
+- 工作台聚合指标(漏斗/雷达/热力图/12 周趋势)存于 `detective_stats` 表,案件/任务/证据/成员等列表均为数据库实时数据
+- 流水线为模拟执行:后端按环节生成初筛、关键词、检索结果、证据、信源评价与报告并持久化,人工审核通过后结案归档

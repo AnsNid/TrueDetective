@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -26,11 +26,8 @@ import {
 } from 'lucide-react';
 import {
   FullCaseDetail,
-  CaseClaim,
-  CaseEvidence,
-  INITIAL_CASE_DETAILS,
-  ReviewRecord,
 } from '../../data/caseDetailsData';
+import { api, clearSavedToken } from '../../api/client';
 import { AuthenticatedUser } from '../LoginPage';
 
 interface CaseDetailWorkbenchProps {
@@ -48,12 +45,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   onDeleteCase,
   onUpdateCaseStatus,
 }) => {
-  // Retrieve or fallback case details
-  const [caseData, setCaseData] = useState<FullCaseDetail>(() => {
-    if (INITIAL_CASE_DETAILS[caseId]) {
-      return JSON.parse(JSON.stringify(INITIAL_CASE_DETAILS[caseId]));
-    }
-    // Default fallback template for any case ID
+  /** 后端加载失败时的占位模板 */
+  const buildFallbackDetail = (): FullCaseDetail => {
     return {
       id: 99,
       case_no: caseId,
@@ -107,44 +100,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         media_path: '',
         image_url: '',
       },
-      claims: [
-        {
-          id: 101,
-          text: '外媒称政策变动构成系统性限制，指责中方行动缺乏透明度',
-          type: 'allegation',
-          elements: {
-            '人物/主体': '外媒与匿名消息源',
-            地点: '国际空域/边境区域',
-            事件: '报道涉华管控举措',
-            定性用语: '系统性限制、缺乏透明度',
-          },
-        },
-        {
-          id: 102,
-          text: '中方官方发言人召开例行记者会，重申依法依规处置合情合理',
-          type: 'fact',
-          elements: {
-            '人物/主体': '中方发言人',
-            地点: '北京',
-            事件: '例行记者会正式驳斥',
-            定性用语: '合法合规、专业规范',
-          },
-        },
-      ],
-      evidence: [
-        {
-          id: 201,
-          name: '官方发言人就有关涉华不实言论答记者问',
-          source_org: '官方机构',
-          source_type: '中方官方',
-          publish_date: '2026-10-19',
-          url: 'https://example.gov.cn/spokesperson-reply',
-          relation: '支持',
-          reliability: '高',
-          note: '中方处置符合国际法准则，有关外媒炒作严重失实。',
-          is_independent: 1,
-        },
-      ],
+      claims: [],
+      evidence: [],
       report: {
         id: 99,
         preliminary_conclusion:
@@ -161,7 +118,38 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
       },
       reviews: [],
     };
-  });
+  };
+
+  // 案件全量详情:从后端加载;加载中/失败时使用占位模板保持布局稳定
+  const [loadedCase, setLoadedCase] = useState<FullCaseDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const fallbackTemplate = React.useMemo(
+    () => buildFallbackDetail(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [caseId, currentUser.displayName]
+  );
+  const caseData = loadedCase ?? fallbackTemplate;
+
+  const loadCaseDetail = React.useCallback(() => {
+    setDetailLoading(true);
+    setDetailError(null);
+    api
+      .caseDetail(caseId)
+      .then((res) => {
+        if (res.code === 200 && res.data) {
+          setLoadedCase(res.data as FullCaseDetail);
+        } else {
+          setDetailError(res.message || '案件加载失败');
+        }
+      })
+      .finally(() => setDetailLoading(false));
+  }, [caseId]);
+
+  useEffect(() => {
+    setLoadedCase(null);
+    loadCaseDetail();
+  }, [loadCaseDetail]);
 
   // State for interactive execution
   const [isRunningAll, setIsRunningAll] = useState(false);
@@ -173,6 +161,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   const [reviewerName, setReviewerName] = useState(currentUser.displayName || '张明');
   const [reviewAction, setReviewAction] = useState<'approved' | 'revised' | 'returned'>('approved');
   const [reviewComment, setReviewComment] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
   const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({
     '打开原始账号核对发布日期': true,
     '确认传播语境是否暗示近期事件': true,
@@ -200,66 +189,59 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     { num: 9, name: '人工审核' },
   ];
 
-  // One-click Auto Verification (Steps 2-8)
+  // One-click Auto Verification (Steps 2-8, 逐环节调用后端流水线)
   const handleRunAutoPipeline = async () => {
     if (isRunningAll) return;
     setIsRunningAll(true);
     triggerToast('开始执行全流程自动核查（环节 2-8）...');
 
-    const stepSequence = [
-      { step: 2, name: '价值初筛', detail: '得分95，通过分级初筛' },
-      { step: 3, name: '主张拆解', detail: '已拆解事实层与指控层主张' },
-      { step: 4, name: '多语种检索', detail: '完成中英文权威信源检索' },
-      { step: 5, name: '出处追踪', detail: '溯源分析完毕，锁定首发时间' },
-      { step: 6, name: '交叉验证', detail: '多源交叉互证，建立证据矩阵' },
-      { step: 7, name: '信源评价', detail: '完成信源六维资质评级 (A/B/C)' },
-      { step: 8, name: '报告生成', detail: `生成完整核查报告，结论：${caseData.final_conclusion || '误导'}` },
-    ];
+    const stepNames: Record<number, string> = {
+      2: '价值初筛',
+      3: '主张拆解',
+      4: '多语种检索',
+      5: '出处追踪',
+      6: '交叉验证',
+      7: '信源评价',
+      8: '报告生成',
+    };
+    const from = Math.max(2, caseData.stage + 1);
 
-    for (const s of stepSequence) {
-      setRunningStepMsg(`正在执行: 环节 ${s.step} · ${s.name}...`);
-      await new Promise((r) => setTimeout(r, 600));
-      setCaseData((prev) => {
-        const nextLogs = prev.running_log.filter((l) => l.stage !== s.step);
-        nextLogs.push({ stage: s.step, name: s.name, ok: true, detail: s.detail });
-        return {
-          ...prev,
-          stage: s.step,
-          stage_name: s.name,
-          status: s.step === 8 ? 'reporting' : 'running',
-          running_log: nextLogs,
-        };
-      });
+    try {
+      for (let step = from; step <= 8; step++) {
+        setRunningStepMsg(`正在执行: 环节 ${step} · ${stepNames[step]}...`);
+        const res = await api.runPipeline(caseData.case_no, step);
+        if (res.code === 200 && res.data?.detail) {
+          setLoadedCase(res.data.detail as FullCaseDetail);
+        } else if (res.code === 401) {
+          clearSavedToken();
+          triggerToast('登录凭证已失效,请重新登录后操作');
+          break;
+        } else {
+          triggerToast(res.message || `环节 ${step} 执行失败`);
+          break;
+        }
+      }
+      triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
+    } finally {
+      setRunningStepMsg(null);
+      setIsRunningAll(false);
     }
-
-    setRunningStepMsg(null);
-    setIsRunningAll(false);
-    triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
   };
 
-  // Re-run single step
-  const handleRerunStep = (stepNum: number, stepName: string) => {
+  // Re-run single step (调用后端重算并持久化)
+  const handleRerunStep = async (stepNum: number, stepName: string) => {
     triggerToast(`正在重新执行环节 ${stepNum}：${stepName}...`);
-    setTimeout(() => {
-      setCaseData((prev) => {
-        const nextLogs = prev.running_log.filter((l) => l.stage !== stepNum);
-        nextLogs.push({
-          stage: stepNum,
-          name: stepName,
-          ok: true,
-          detail: `手动更新完毕 (${new Date().toLocaleTimeString()})`,
-        });
-        return {
-          ...prev,
-          running_log: nextLogs,
-        };
-      });
+    const res = await api.runPipeline(caseData.case_no, stepNum);
+    if (res.code === 200 && res.data?.detail) {
+      setLoadedCase(res.data.detail as FullCaseDetail);
       triggerToast(`环节 ${stepNum} (${stepName}) 重新计算完成！`);
-    }, 700);
+    } else {
+      triggerToast(res.message || `环节 ${stepNum} 重新计算失败`);
+    }
   };
 
-  // Submit Human Review (Stage 9)
-  const handleSubmitReview = (e: React.FormEvent) => {
+  // Submit Human Review (Stage 9, 持久化到后端)
+  const handleSubmitReview = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reviewComment.trim()) {
       triggerToast('请填写审核意见');
@@ -270,39 +252,33 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
       .filter(([_, checked]) => checked)
       .map(([key]) => key);
 
-    const newReview: ReviewRecord = {
-      id: Date.now(),
-      reviewer: reviewerName,
-      action: reviewAction,
-      comment: reviewComment,
-      check_items: selectedCheckItems,
-      reviewed_at: new Date().toLocaleString('zh-CN'),
-    };
-
-    const isDone = reviewAction === 'approved';
-    const nextStatus = isDone ? 'done' : 'running';
-    const nextStage = isDone ? 9 : 8;
-    const nextStageName = isDone ? '已结案' : '报告生成';
-
-    setCaseData((prev) => ({
-      ...prev,
-      status: nextStatus,
-      stage: nextStage,
-      stage_name: nextStageName,
-      reviews: [newReview, ...prev.reviews],
-    }));
-
-    setReviewComment('');
-    triggerToast(
-      isDone ? '审核通过！案件已结案归档。' : '审核记录已保存，案件已退回/标记修改。'
-    );
-
-    if (onUpdateCaseStatus) {
-      onUpdateCaseStatus(
-        caseData.case_no,
-        isDone ? '已结案' : '进行中',
-        caseData.final_conclusion
-      );
+    setSubmittingReview(true);
+    try {
+      const res = await api.submitReview(caseData.case_no, {
+        reviewer: reviewerName,
+        action: reviewAction,
+        comment: reviewComment.trim(),
+        checkItems: selectedCheckItems,
+      });
+      if (res.code === 200 && res.data?.detail) {
+        setLoadedCase(res.data.detail as FullCaseDetail);
+        setReviewComment('');
+        const isDone = reviewAction === 'approved';
+        triggerToast(
+          isDone ? '审核通过！案件已结案归档。' : '审核记录已保存，案件已退回/标记修改。'
+        );
+        if (onUpdateCaseStatus) {
+          onUpdateCaseStatus(
+            caseData.case_no,
+            isDone ? '已结案' : '进行中',
+            caseData.final_conclusion
+          );
+        }
+      } else {
+        triggerToast(res.message || '审核提交失败');
+      }
+    } finally {
+      setSubmittingReview(false);
     }
   };
 
@@ -333,6 +309,20 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
           </button>
         </div>
       )}
+
+      {/* 详情加载/错误提示 */}
+      {detailError ? (
+        <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-700 flex items-center justify-between">
+          <span>⚠ {detailError}(当前展示占位数据)</span>
+          <button
+            type="button"
+            onClick={loadCaseDetail}
+            className="text-xs font-medium underline ml-4 cursor-pointer shrink-0"
+          >
+            重新加载
+          </button>
+        </div>
+      ) : null}
 
       {/* Top Breadcrumb & Action Bar */}
       <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
@@ -383,10 +373,14 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
           {onDeleteCase && (
             <button
-              onClick={() => {
-                if (window.confirm(`确定删除案件 ${caseData.case_no} 吗？`)) {
-                  onDeleteCase(caseData.case_no);
+              onClick={async () => {
+                if (!window.confirm(`确定删除案件 ${caseData.case_no} 吗？`)) return;
+                const res = await api.deleteCase(caseData.case_no);
+                if (res.code === 200) {
+                  if (onDeleteCase) onDeleteCase(caseData.case_no);
                   onBack();
+                } else {
+                  triggerToast(res.message || '删除失败');
                 }
               }}
               className="flex items-center gap-1 px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-[12px] transition-colors cursor-pointer"
@@ -1078,9 +1072,10 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
               <button
                 type="submit"
-                className="w-full py-2 bg-[#2563EB] hover:bg-blue-700 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer"
+                disabled={submittingReview}
+                className="w-full py-2 bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed"
               >
-                提交终审意见并更新案件
+                {submittingReview ? '正在提交审核…' : '提交终审意见并更新案件'}
               </button>
             </form>
 

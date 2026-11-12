@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { lazy, Suspense, useState, useMemo } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect } from 'react';
 import {
   BrowserRouter,
   HashRouter,
@@ -18,6 +18,9 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { ScrollToTop } from './components/ScrollToTop';
 import { LoginPage, AuthenticatedUser } from './components/LoginPage';
+import { api, getSavedToken, setSavedToken, clearSavedToken } from './api/client';
+import { useApiData } from './api/hooks';
+import type { DashboardPayload } from './api/client';
 
 // Route-level code splitting: each view loads on demand via its own chunk.
 const WorkbenchView = lazy(() =>
@@ -61,12 +64,7 @@ const CaseDetailWorkbench = lazy(() =>
     default: m.CaseDetailWorkbench,
   }))
 );
-import {
-  METRICS_BY_TIME_RANGE,
-  ONGOING_CASES,
-  PENDING_REVIEW_LIST,
-  TimeRangeKey,
-} from './data/dashboardData';
+import { METRICS_BY_TIME_RANGE, TimeRangeKey } from './data/dashboardData';
 import {
   filterOngoingCases,
   filterPendingReviews,
@@ -84,6 +82,9 @@ function RouteFallback() {
   );
 }
 
+/** 默认演示账号(与后端种子数据一致),供 ?autostart=1 快速进入 */
+const DEMO_ACCOUNT = { username: 'zhangming@zhentan.org', password: 'Zt@2026Admin' };
+
 export default function App() {
   // Router mode: hash by default (works on any static host without SPA fallback);
   // set VITE_ROUTER_MODE=history for clean URLs when the host supports it.
@@ -99,14 +100,10 @@ export default function App() {
 }
 
 function AppShell() {
-  // Support ?autostart=1 to skip the login screen if specified
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      if (params.get('autostart') === '1') return true;
-    }
-    return false;
+    return typeof window !== 'undefined' && Boolean(getSavedToken());
   });
+  const [authChecking, setAuthChecking] = useState<boolean>(isAuthenticated);
 
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser>({
     displayName: '张明',
@@ -122,16 +119,71 @@ function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const currentMetrics = METRICS_BY_TIME_RANGE[activeTimeRange];
+  // 工作台聚合数据(仪表盘 KPI / 漏斗 / 待审核 / 进行中案件)
+  const dashboard = useApiData<DashboardPayload>(
+    () => api.dashboard(activeTimeRange),
+    [activeTimeRange, isAuthenticated]
+  );
+
+  // 启动时校验已存 token,并加载用户身份
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    setAuthChecking(true);
+    api.getUserInfo().then((res) => {
+      if (cancelled) return;
+      setAuthChecking(false);
+      if (res.code === 200 && res.data) {
+        const nickname = res.data.nickname || res.data.username || '核查员';
+        setCurrentUser({
+          displayName: nickname,
+          roleLabel: res.data.roleLabel || '管理员',
+          avatarChar: nickname.charAt(0) || '核',
+        });
+      } else if (res.code === 401) {
+        setIsAuthenticated(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  // ?autostart=1 自动用演示账号登录(保持旧的免登录直达体验)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('autostart') !== '1') return;
+    if (getSavedToken()) {
+      setIsAuthenticated(true);
+      return;
+    }
+    api.login(DEMO_ACCOUNT.username, DEMO_ACCOUNT.password).then((res) => {
+      if (res.code === 200 && res.data?.token) {
+        setSavedToken(res.data.token);
+        setIsAuthenticated(true);
+        if (res.data.user) {
+          const nickname = res.data.user.nickname || res.data.user.username || '张明';
+          setCurrentUser({
+            displayName: nickname,
+            roleLabel: res.data.user.roleLabel || '管理员',
+            avatarChar: nickname.charAt(0) || '张',
+          });
+        }
+      }
+    });
+  }, []);
+
+  const currentMetrics = dashboard.data?.metrics ?? METRICS_BY_TIME_RANGE[activeTimeRange];
 
   const filteredOngoingCases = useMemo(
-    () => filterOngoingCases(ONGOING_CASES, searchQuery),
-    [searchQuery]
+    () => filterOngoingCases(dashboard.data?.ongoingCases ?? [], searchQuery),
+    [dashboard.data, searchQuery]
   );
 
   const filteredPendingReviews = useMemo(
-    () => filterPendingReviews(PENDING_REVIEW_LIST, searchQuery),
-    [searchQuery]
+    () => filterPendingReviews(dashboard.data?.pendingReviews ?? [], searchQuery),
+    [dashboard.data, searchQuery]
   );
 
   const handleTriggerBanner = (msg: string) => {
@@ -180,6 +232,10 @@ function AppShell() {
     );
   }
 
+  if (authChecking) {
+    return <RouteFallback />;
+  }
+
   return (
     <div className="min-h-screen flex bg-[#F4F6F9] text-[#0F172A] overflow-x-clip">
       {/* Left Dark Sidebar (Fixed on lg+, Slide-over Drawer on <lg) */}
@@ -200,6 +256,7 @@ function AppShell() {
             handleTriggerBanner('当前有 12 条待人工审核案件提醒，最近一条来自王思思 (ZT-2026-0017)')
           }
           onLogoutClick={() => {
+            clearSavedToken();
             setIsAuthenticated(false);
             setBannerMessage(null);
           }}
@@ -254,6 +311,10 @@ function AppShell() {
                   onSelectCase={(item) => openCase(item.caseId)}
                   onViewAllCases={() => navigate('/tasks')}
                   currentUser={currentUser}
+                  dashboard={dashboard.data}
+                  dashboardLoading={dashboard.loading}
+                  dashboardError={dashboard.error}
+                  onReloadDashboard={dashboard.reload}
                 />
               }
             />
@@ -317,6 +378,7 @@ function AppShell() {
                     handleTriggerBanner(
                       `案件 ${id} 状态已更新为：${status} (${conclusion})`
                     );
+                    dashboard.reload();
                   }}
                 />
               }

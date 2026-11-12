@@ -9,22 +9,28 @@ interface Row3CasesAndChartsProps {
   ongoingCases: OngoingCaseItem[];
   onSelectCase: (item: OngoingCaseItem) => void;
   onViewAllCases: () => void;
+  conclusionDistribution?: typeof CONCLUSION_DISTRIBUTION;
+  imageAuthSegments?: typeof IMAGE_AUTH_SEGMENTS;
 }
 
 export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
   ongoingCases,
   onSelectCase,
   onViewAllCases,
+  conclusionDistribution = CONCLUSION_DISTRIBUTION,
+  imageAuthSegments = IMAGE_AUTH_SEGMENTS,
 }) => {
-  const maxBarVal = Math.max(...CONCLUSION_DISTRIBUTION.map((d) => d.value));
+  const maxBarVal = Math.max(...conclusionDistribution.map((d) => d.value), 1);
 
-  // Donut chart geometry matching reference screenshot:
-  // Green (41%) on right-bottom, Blue (37%) on bottom-left, Orange (23%) on top-left
+  // Donut chart geometry driven by backend segments:
+  // Green (真实现场图) on right-bottom, Blue (疑似AI生成) on bottom-left, Orange (疑似旧图新用) on top-left
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  const greenLen = (40 / 100) * circumference;
-  const blueLen = (37 / 100) * circumference;
-  const orangeLen = (23 / 100) * circumference;
+  const segPct = (idx: number) =>
+    imageAuthSegments[idx]?.percentage ?? [41, 37, 23][idx] ?? 0;
+  const greenLen = (segPct(0) / 100) * circumference;
+  const blueLen = (segPct(1) / 100) * circumference;
+  const orangeLen = (segPct(2) / 100) * circumference;
 
   const getConclusionBadgeClass = (conclusion: OngoingCaseItem['conclusion']) => {
     switch (conclusion) {
@@ -58,7 +64,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
         {/* Vertical Bar Chart */}
         <div className="pt-3 pb-1">
           <div className="h-[104px] flex items-end justify-between gap-1.5 border-b border-slate-100 px-0.5">
-            {CONCLUSION_DISTRIBUTION.map((item) => {
+            {conclusionDistribution.map((item) => {
               const barHeightPx = Math.round((item.value / maxBarVal) * 82);
               return (
                 <div
@@ -82,7 +88,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
 
           {/* X-Axis Category Labels */}
           <div className="flex items-center justify-between gap-0.5 pt-1.5">
-            {CONCLUSION_DISTRIBUTION.map((item) => (
+            {conclusionDistribution.map((item) => (
               <span
                 key={item.label}
                 className="flex-1 text-center text-[9.5px] text-slate-400 whitespace-nowrap truncate"
@@ -275,7 +281,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
 
         {/* Legend List */}
         <div className="divide-y divide-slate-100 text-[11.5px]">
-          {IMAGE_AUTH_SEGMENTS.map((seg) => (
+          {imageAuthSegments.map((seg) => (
             <div
               key={seg.label}
               className="py-1 first:pt-0 last:pb-0 flex items-center justify-between"

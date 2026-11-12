@@ -7,8 +7,10 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
+  Loader2,
 } from 'lucide-react';
 import { validateLoginCredentials } from '../utils/dashboardLogic';
+import { api, setSavedToken, TOKEN_KEY } from '../api/client';
 import loginBgUrl from '../assets/images/login_verification_bg_1794044224066.jpg';
 
 export interface AuthenticatedUser {
@@ -29,9 +31,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [rememberMe, setRememberMe] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitting) return;
     const validation = validateLoginCredentials(username, password, roleLabel);
     if (!validation.valid) {
       setErrorMessage(validation.error || '登录信息校验未通过');
@@ -39,12 +43,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
 
     setErrorMessage(null);
-    const displayName = validation.displayName || '张明';
-    onLoginSuccess({
-      displayName,
-      roleLabel: validation.roleLabel || '管理员',
-      avatarChar: displayName.charAt(0) || '张',
-    });
+    setSubmitting(true);
+    try {
+      const res = await api.login(username.trim(), password);
+      if (res.code === 200 && res.data?.token) {
+        if (rememberMe) {
+          setSavedToken(res.data.token);
+        } else {
+          sessionStorage.setItem(TOKEN_KEY, res.data.token);
+        }
+        const backend = res.data.user;
+        const displayName =
+          backend?.nickname || validation.displayName || '核查员';
+        onLoginSuccess({
+          displayName,
+          roleLabel: backend?.roleLabel || validation.roleLabel || '管理员',
+          avatarChar: displayName.charAt(0) || '核',
+        });
+        return;
+      }
+      setErrorMessage(res.message || '登录失败,请检查账号或密码');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleQuickFill = (
@@ -320,10 +341,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             {/* Submit Button */}
             <button
               type="submit"
-              className="w-full h-10 rounded-lg bg-[#2563EB] hover:bg-blue-700 text-white font-semibold text-[13.5px] shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer mt-2"
+              disabled={submitting}
+              className="w-full h-10 rounded-lg bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-[13.5px] shadow-xs flex items-center justify-center gap-2 transition-colors cursor-pointer disabled:cursor-not-allowed mt-2"
             >
-              <span>登录进入工作台</span>
-              <ArrowRight className="w-4 h-4" />
+              {submitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>正在登录…</span>
+                </>
+              ) : (
+                <>
+                  <span>登录进入工作台</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
 

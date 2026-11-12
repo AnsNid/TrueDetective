@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  HISTORY_CASES,
   HistoryCase,
 } from '../../data/viewsData';
 import {
@@ -12,6 +11,8 @@ import {
   ChevronRight,
   ExternalLink,
 } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 interface HistoryViewProps {
   onSelectCaseDetail?: (caseId: string) => void;
@@ -21,6 +22,44 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   onSelectCaseDetail,
 }) => {
   const [selectedCaseModal, setSelectedCaseModal] = useState<HistoryCase | null>(null);
+
+  // 后端已结案案例
+  const historyQuery = useApiData<{ list: HistoryCase[] }>(() => api.history());
+  const historyCases = historyQuery.data?.list ?? [];
+
+  // 统计卡片(由后端数据计算)
+  const closedCount = historyCases.length;
+  const misleadingLikeCount = historyCases.filter((c) => c.conclusion === '误导' || c.conclusion === '虚假').length;
+  const misleadingPct = closedCount ? Math.round((misleadingLikeCount / closedCount) * 100) : 0;
+
+  // 结论分布(环形图分段,由后端数据聚合)
+  const DONUT_C = 251.3;
+  const conclusionSegments = [
+    { key: '误导', color: '#F97316', count: historyCases.filter((c) => c.conclusion === '误导').length },
+    { key: '真实 / 基本真实', color: '#10B981', count: historyCases.filter((c) => c.conclusion === '真实' || c.conclusion === '基本真实').length },
+    { key: '虚假', color: '#EF4444', count: historyCases.filter((c) => c.conclusion === '虚假').length },
+    { key: '尚待核实', color: '#3B82F6', count: historyCases.filter((c) => c.conclusion === '尚待核实').length },
+  ];
+  let donutOffset = 0;
+  const donutSegments = conclusionSegments
+    .filter((s) => s.count > 0)
+    .map((s) => {
+      const len = (s.count / Math.max(closedCount, 1)) * DONUT_C;
+      const seg = { ...s, len, offset: donutOffset };
+      donutOffset += len;
+      return seg;
+    });
+
+  // 结案时间线(按结案日期聚合,最近 5 个日期)
+  const timelineMap = new Map<string, number>();
+  for (const c of historyCases) {
+    const d = c.closedDate?.slice(5) ?? '';
+    if (d) timelineMap.set(d, (timelineMap.get(d) ?? 0) + 1);
+  }
+  const timelineRows = Array.from(timelineMap.entries())
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1))
+    .slice(0, 5)
+    .map(([date, count]) => ({ date, count, w: `${Math.round((count / Math.max(...timelineMap.values(), 1)) * 100)}%` }));
 
   const getConclusionBadge = (conclusion: string) => {
     switch (conclusion) {
@@ -63,11 +102,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             历史案例
           </h1>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            已结案案例，共 7 个，可沉淀为知识库教学案例
+            已结案案例，共 {closedCount} 个，可沉淀为知识库教学案例
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          本月结案 7 个 · 沉淀率 100% · 教学案例库已同步更新
+          本月结案 {closedCount} 个 · 沉淀率 100% · 教学案例库已同步更新
         </div>
       </div>
 
@@ -77,11 +116,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">已结案</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">7</span>
-            <span className="text-[10px] text-slate-400">结案率 44%</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{closedCount}</span>
+            <span className="text-[10px] text-slate-400">全部来自核查任务</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '44%' }}></div>
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '100%' }}></div>
           </div>
         </div>
 
@@ -89,7 +128,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">已沉淀为教学案例</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">7</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{closedCount}</span>
             <span className="text-[10px] text-slate-400">全部进入知识库「典型案例」</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
@@ -115,11 +154,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">误导/虚假类占比</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-rose-600 tabular-nums">57%</span>
-            <span className="text-[10px] text-slate-400">4/7 个案件</span>
+            <span className="text-2xl font-extrabold text-rose-600 tabular-nums">{misleadingPct}%</span>
+            <span className="text-[10px] text-slate-400">{misleadingLikeCount}/{closedCount} 个案件</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-rose-500 h-full rounded-full" style={{ width: '57%' }}></div>
+            <div className="bg-rose-500 h-full rounded-full" style={{ width: `${misleadingPct}%` }}></div>
           </div>
         </div>
       </div>
@@ -128,7 +167,15 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
         {/* Left 8 Cols: Case Cards Grid */}
         <div className="lg:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-3">
-          {HISTORY_CASES.map((c) => (
+          {historyQuery.error && !historyQuery.loading ? (
+            <LoadErrorBar message={historyQuery.error} onRetry={historyQuery.reload} />
+          ) : historyQuery.loading ? (
+            <LoadingCards rows={3} />
+          ) : historyCases.length === 0 ? (
+            <div className="px-3 py-8 text-center text-[12px] text-slate-400">
+              暂无已结案案例
+            </div>
+          ) : historyCases.map((c) => (
             <div
               key={c.id}
               className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex flex-col justify-between space-y-2.5 hover:border-slate-300 transition-colors"
@@ -232,7 +279,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 结论分布
               </div>
-              <span className="text-[10px] text-slate-400">7 个案例</span>
+              <span className="text-[10px] text-slate-400">{closedCount} 个案例</span>
             </div>
 
             {/* Donut chart representation */}
@@ -247,87 +294,37 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                     stroke="#E2E8F0"
                     strokeWidth="14"
                   />
-                  {/* Orange segment: 3/7 = 42.8% */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#F97316"
-                    strokeWidth="14"
-                    strokeDasharray="107.6 251.3"
-                    strokeDashoffset="0"
-                  />
-                  {/* Green segment: 2/7 = 28.5% */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#10B981"
-                    strokeWidth="14"
-                    strokeDasharray="71.7 251.3"
-                    strokeDashoffset="-107.6"
-                  />
-                  {/* Red segment: 1/7 = 14.3% */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#EF4444"
-                    strokeWidth="14"
-                    strokeDasharray="35.9 251.3"
-                    strokeDashoffset="-179.3"
-                  />
-                  {/* Blue segment: 1/7 = 14.3% */}
-                  <circle
-                    cx="50"
-                    cy="50"
-                    r="40"
-                    fill="transparent"
-                    stroke="#3B82F6"
-                    strokeWidth="14"
-                    strokeDasharray="35.9 251.3"
-                    strokeDashoffset="-215.2"
-                  />
+                  {donutSegments.map((seg) => (
+                    <circle
+                      key={seg.key}
+                      cx="50"
+                      cy="50"
+                      r="40"
+                      fill="transparent"
+                      stroke={seg.color}
+                      strokeWidth="14"
+                      strokeDasharray={`${seg.len.toFixed(1)} ${DONUT_C}`}
+                      strokeDashoffset={(-seg.offset).toFixed(1)}
+                    />
+                  ))}
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                  <span className="text-xl font-extrabold text-slate-900 leading-none">7</span>
+                  <span className="text-xl font-extrabold text-slate-900 leading-none">{closedCount}</span>
                   <span className="text-[10px] text-slate-400 mt-0.5">已结案</span>
                 </div>
               </div>
 
               {/* Legend */}
               <div className="w-full mt-4 space-y-1.5 text-[11px]">
-                <div className="flex items-center justify-between text-slate-600">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#F97316]"></span>
-                    <span>误导</span>
+                {conclusionSegments.map((seg) => (
+                  <div key={seg.key} className="flex items-center justify-between text-slate-600">
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: seg.color }}></span>
+                      <span>{seg.key}</span>
+                    </div>
+                    <span className="font-semibold tabular-nums text-slate-800">{seg.count}</span>
                   </div>
-                  <span className="font-semibold tabular-nums text-slate-800">3</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-600">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#10B981]"></span>
-                    <span>真实 / 基本真实</span>
-                  </div>
-                  <span className="font-semibold tabular-nums text-slate-800">2</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-600">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#EF4444]"></span>
-                    <span>虚假</span>
-                  </div>
-                  <span className="font-semibold tabular-nums text-slate-800">1</span>
-                </div>
-                <div className="flex items-center justify-between text-slate-600">
-                  <div className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-[#3B82F6]"></span>
-                    <span>尚待核实</span>
-                  </div>
-                  <span className="font-semibold tabular-nums text-slate-800">1</span>
-                </div>
+                ))}
               </div>
             </div>
           </div>
@@ -343,13 +340,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             </div>
 
             <div className="space-y-2 text-[11px]">
-              {[
-                { date: '09-24', count: 2, w: '100%' },
-                { date: '09-23', count: 1, w: '50%' },
-                { date: '09-22', count: 2, w: '100%' },
-                { date: '09-20', count: 2, w: '100%' },
-                { date: '09-18', count: 1, w: '50%' },
-              ].map((row) => (
+              {timelineRows.map((row) => (
                 <div key={row.date} className="flex items-center gap-2">
                   <span className="w-12 text-slate-400 tabular-nums">{row.date}</span>
                   <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">

@@ -1,8 +1,7 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
-  TEAM_MEMBERS,
   TeamMember,
-  AUDIT_LOGS,
+  AuditLogItem,
 } from '../../data/viewsData';
 import {
   UserPlus,
@@ -13,55 +12,94 @@ import {
   AlertTriangle,
   Check,
 } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 export const UsersView: React.FC = () => {
   const [roleFilter, setRoleFilter] = useState<'全部' | '管理员' | '审核员' | '核查员'>('全部');
-  const [members, setMembers] = useState<TeamMember[]>(TEAM_MEMBERS);
+  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
   const [addUserModal, setAddUserModal] = useState(false);
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState<'核查员' | '审核员' | '管理员'>('核查员');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  // 后端成员与审计日志
+  const usersQuery = useApiData<{ list: TeamMember[] }>(() => api.users());
+  const logsQuery = useApiData<{ list: AuditLogItem[] }>(() => api.auditLogs());
+
+  useEffect(() => {
+    if (usersQuery.data?.list) setMembers(usersQuery.data.list);
+  }, [usersQuery.data]);
+  useEffect(() => {
+    if (logsQuery.data?.list) setAuditLogs(logsQuery.data.list);
+  }, [logsQuery.data]);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 2500);
+  };
+
+  const toggleStatus = async (id: number) => {
+    const target = members.find((m) => m.id === id);
+    if (!target) return;
+    const next = target.status === '启用' ? '停用' : '启用';
+    // 乐观更新,失败回滚
+    setMembers((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, status: next } : m))
+    );
+    const res = await api.updateUser(id, { status: next });
+    if (res.code !== 200) {
+      setMembers((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, status: target.status } : m))
+      );
+      showToast(res.message || '状态更新失败');
+      return;
+    }
+    showToast(`成员 ${target.name} 已设置为${next}`);
+    logsQuery.reload();
+  };
+
+  const handleAddUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newUserName.trim() || saving) return;
+    setSaving(true);
+    setModalError(null);
+    try {
+      const res = await api.createUser({
+        name: newUserName.trim(),
+        title: '核查专员',
+        handle: `@${newUserName.trim().toLowerCase()}`,
+        role: newUserRole,
+        department: newUserRole === '审核员' ? '审核组' : '分析组',
+        email: `${newUserName.trim().toLowerCase()}@zhentan.cn`,
+        status: '启用',
+      });
+      if (res.code === 200) {
+        setAddUserModal(false);
+        setNewUserName('');
+        showToast(`已成功添加成员 ${newUserName.trim()}`);
+        usersQuery.reload();
+        logsQuery.reload();
+      } else {
+        setModalError(res.message || '新增成员失败');
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const filteredMembers = useMemo(() => {
     if (roleFilter === '全部') return members;
     return members.filter((m) => m.role === roleFilter);
   }, [roleFilter, members]);
 
-  const toggleStatus = (id: number) => {
-    setMembers((prev) =>
-      prev.map((m) => {
-        if (m.id === id) {
-          const next = m.status === '启用' ? '停用' : '启用';
-          setToastMsg(`成员 ${m.name} 已设置为${next}`);
-          setTimeout(() => setToastMsg(null), 2500);
-          return { ...m, status: next };
-        }
-        return m;
-      })
-    );
-  };
-
-  const handleAddUser = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newUserName.trim()) return;
-    const newMember: TeamMember = {
-      id: Date.now(),
-      name: newUserName.trim(),
-      title: '核查专员',
-      handle: `@${newUserName.trim().toLowerCase()}`,
-      role: newUserRole,
-      department: newUserRole === '审核员' ? '审核组' : '分析组',
-      email: `${newUserName.trim().toLowerCase()}@zhentan.cn`,
-      status: '启用',
-      lastActive: '刚刚',
-      avatarChar: newUserName.trim().slice(0, 1),
-    };
-    setMembers((prev) => [...prev, newMember]);
-    setAddUserModal(false);
-    setNewUserName('');
-    setToastMsg(`已成功添加成员 ${newMember.name}`);
-    setTimeout(() => setToastMsg(null), 2500);
-  };
+  // 统计卡片(由后端数据计算)
+  const roleCount = (role: string) => members.filter((m) => m.role === role).length;
+  const activeCount = members.filter((m) => m.status === '启用').length;
+  const disabledCount = members.length - activeCount;
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -110,11 +148,11 @@ export const UsersView: React.FC = () => {
             用户管理
           </h1>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            系统用户与权限管理，支持成员协作与操作留痕 (共 6 人)
+            系统用户与权限管理，支持成员协作与操作留痕 (共 {members.length} 人)
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          在岗 5 人 · 停用 1 人 &nbsp;&nbsp;最近登录 2026-11-05 09:38
+          在岗 {activeCount} 人 · 停用 {disabledCount} 人
         </div>
       </div>
 
@@ -124,11 +162,11 @@ export const UsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">成员总数</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">6</span>
-            <span className="text-[10px] text-slate-400">在岗 5 · 停用 1</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{members.length}</span>
+            <span className="text-[10px] text-slate-400">在岗 {activeCount} · 停用 {disabledCount}</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-blue-600 h-full rounded-full" style={{ width: '83%' }}></div>
+            <div className="bg-blue-600 h-full rounded-full" style={{ width: `${members.length ? Math.round((activeCount / members.length) * 100) : 0}%` }}></div>
           </div>
         </div>
 
@@ -136,7 +174,7 @@ export const UsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">管理员</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">1</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{roleCount('管理员')}</span>
             <span className="text-[10px] text-slate-400">全部权限 · 可编辑知识库</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
@@ -148,11 +186,11 @@ export const UsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">审核员</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">2</span>
+            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">{roleCount('审核员')}</span>
             <span className="text-[10px] text-slate-400">终审定论 · 不可删除证据</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: '66%' }}></div>
+            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${members.length ? Math.round((roleCount('审核员') / members.length) * 100) : 0}%` }}></div>
           </div>
         </div>
 
@@ -160,7 +198,7 @@ export const UsersView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">核查员</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">3</span>
+            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">{roleCount('核查员')}</span>
             <span className="text-[10px] text-slate-400">提交线索 · 参与 9 环节</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
@@ -226,7 +264,19 @@ export const UsersView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredMembers.map((m) => (
+                  {usersQuery.loading && members.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-3">
+                        <LoadingCards rows={3} />
+                      </td>
+                    </tr>
+                  ) : usersQuery.error && members.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="px-3 py-2">
+                        <LoadErrorBar message={usersQuery.error} onRetry={usersQuery.reload} />
+                      </td>
+                    </tr>
+                  ) : filteredMembers.map((m) => (
                     <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 pl-4 pr-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
@@ -331,7 +381,19 @@ export const UsersView: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {AUDIT_LOGS.map((log) => (
+                  {logsQuery.loading && auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-3">
+                        <LoadingCards rows={2} />
+                      </td>
+                    </tr>
+                  ) : auditLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-[11px] text-slate-400">
+                        暂无操作日志
+                      </td>
+                    </tr>
+                  ) : auditLogs.map((log) => (
                     <tr key={log.id} className="hover:bg-slate-50/50">
                       <td className="py-2 font-mono text-slate-400 tabular-nums">
                         {log.time}
@@ -519,6 +581,11 @@ export const UsersView: React.FC = () => {
             </div>
 
             <form onSubmit={handleAddUser} className="space-y-3 text-xs">
+              {modalError ? (
+                <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px]">
+                  {modalError}
+                </div>
+              ) : null}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">成员姓名</label>
                 <input
@@ -554,9 +621,10 @@ export const UsersView: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 bg-[#2563EB] text-white rounded-lg font-medium hover:bg-blue-700 cursor-pointer"
+                  disabled={saving}
+                  className="px-4 py-1.5 bg-[#2563EB] text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-blue-400 cursor-pointer disabled:cursor-not-allowed"
                 >
-                  确认添加
+                  {saving ? '正在添加…' : '确认添加'}
                 </button>
               </div>
             </form>

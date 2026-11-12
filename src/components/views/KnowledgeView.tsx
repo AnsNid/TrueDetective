@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  KNOWLEDGE_ITEMS,
   KnowledgeItem,
 } from '../../data/viewsData';
 import {
@@ -13,14 +12,34 @@ import {
   ExternalLink,
   Search,
 } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 export const KnowledgeView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('全部条目');
   const [searchKey, setSearchKey] = useState('');
   const [detailModalItem, setDetailModalItem] = useState<KnowledgeItem | null>(null);
 
+  // 后端知识库条目
+  const knowledgeQuery = useApiData<{ list: KnowledgeItem[] }>(() => api.knowledge());
+  const allItems = knowledgeQuery.data?.list ?? [];
+
+  // 统计卡片(由后端数据计算)
+  const totalItems = allItems.length;
+  const categoryNames = ['全部条目', '核查规范', '核查方法', '信源分级', '典型案例'];
+  const categoryRows = categoryNames.map((name) => ({
+    name,
+    count: name === '全部条目' ? totalItems : allItems.filter((i) => i.category === name).length,
+  }));
+  const categoryCount = new Set(allItems.map((i) => i.category)).size;
+  const topCitations = allItems.reduce((max, i) => Math.max(max, i.citations), 0);
+  const caseStudyCount = allItems.filter((i) => i.category === '典型案例').length;
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+  const staleCount = allItems.filter((i) => (i.updatedDate || '').replace(/-/g, '') < monthAgo).length;
+  const latestUpdate = allItems.reduce((max, i) => (i.updatedDate > max ? i.updatedDate : max), '');
+
   const filteredItems = useMemo(() => {
-    return KNOWLEDGE_ITEMS.filter((item) => {
+    return allItems.filter((item) => {
       if (activeCategory !== '全部条目' && item.category !== activeCategory) {
         return false;
       }
@@ -34,7 +53,7 @@ export const KnowledgeView: React.FC = () => {
       }
       return true;
     });
-  }, [activeCategory, searchKey]);
+  }, [allItems, activeCategory, searchKey]);
 
   const getCategoryBadgeClass = (category: string) => {
     switch (category) {
@@ -60,11 +79,11 @@ export const KnowledgeView: React.FC = () => {
             知识库
           </h1>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            核查规范、核查方法、信源分级与历史案例沉淀 (已结案案例 7 个)
+            核查规范、核查方法、信源分级与历史案例沉淀
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          条目 16 · 最近更新 2026-10-28 · 仅审核员可编辑
+          条目 {totalItems} · 最近更新 {latestUpdate || '—'} · 仅审核员可编辑
         </div>
       </div>
 
@@ -74,8 +93,8 @@ export const KnowledgeView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">知识条目</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">16</span>
-            <span className="text-[10px] text-slate-400">4 个分类，各 4 条</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{totalItems}</span>
+            <span className="text-[10px] text-slate-400">{categoryCount} 个分类</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
             <div className="bg-blue-600 h-full rounded-full" style={{ width: '100%' }}></div>
@@ -84,9 +103,9 @@ export const KnowledgeView: React.FC = () => {
 
         {/* Card 2 */}
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
-          <div className="text-[11px] text-slate-500 font-medium">本月引用</div>
+          <div className="text-[11px] text-slate-500 font-medium">最高引用条目</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">128<span className="text-sm font-normal text-slate-500">次</span></span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{topCitations}<span className="text-sm font-normal text-slate-500">次</span></span>
             <span className="text-[10px] text-slate-400">核查环节自动呼出</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
@@ -98,11 +117,11 @@ export const KnowledgeView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">教学案例</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">7</span>
-            <span className="text-[10px] text-slate-400">全部来自已结案案件</span>
+            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">{caseStudyCount}</span>
+            <span className="text-[10px] text-slate-400">来自已结案案件</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '100%' }}></div>
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(100, caseStudyCount * 14)}%` }}></div>
           </div>
         </div>
 
@@ -110,11 +129,11 @@ export const KnowledgeView: React.FC = () => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">待复核条目</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">2</span>
+            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">{staleCount}</span>
             <span className="text-[10px] text-slate-400">超 30 天未更新</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: '20%' }}></div>
+            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${totalItems ? Math.round((staleCount / totalItems) * 100) : 0}%` }}></div>
           </div>
         </div>
       </div>
@@ -130,17 +149,11 @@ export const KnowledgeView: React.FC = () => {
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 知识分类
               </div>
-              <span className="text-[10px] text-slate-400">共 16 条</span>
+              <span className="text-[10px] text-slate-400">共 {totalItems} 条</span>
             </div>
 
             <div className="space-y-1 text-[12px]">
-              {[
-                { name: '全部条目', count: 16 },
-                { name: '核查规范', count: 4 },
-                { name: '核查方法', count: 4 },
-                { name: '信源分级', count: 4 },
-                { name: '典型案例', count: 4 },
-              ].map((cat) => (
+              {categoryRows.map((cat) => (
                 <button
                   key={cat.name}
                   onClick={() => setActiveCategory(cat.name)}
@@ -223,7 +236,15 @@ export const KnowledgeView: React.FC = () => {
         {/* Right Main Grid (8.5 cols) */}
         <div className="lg:col-span-8">
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {filteredItems.map((item) => (
+            {knowledgeQuery.error && !knowledgeQuery.loading ? (
+              <LoadErrorBar message={knowledgeQuery.error} onRetry={knowledgeQuery.reload} />
+            ) : knowledgeQuery.loading ? (
+              <LoadingCards rows={3} />
+            ) : filteredItems.length === 0 ? (
+              <div className="px-3 py-8 text-center text-[12px] text-slate-400">
+                暂无符合条件的知识条目
+              </div>
+            ) : filteredItems.map((item) => (
               <div
                 key={item.id}
                 className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex flex-col justify-between space-y-2.5 hover:border-slate-300 transition-colors"

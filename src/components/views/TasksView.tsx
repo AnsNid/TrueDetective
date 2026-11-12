@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  ALL_TASKS,
   TaskItem,
 } from '../../data/viewsData';
 import {
@@ -14,6 +13,8 @@ import {
   ChevronRight,
   Filter,
 } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 interface TasksViewProps {
   onOpenNewClue?: () => void;
@@ -30,8 +31,12 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [currentPage, setCurrentPage] = useState<number>(1);
   const pageSize = 12;
 
+  // 后端核查任务列表
+  const tasksQuery = useApiData<{ list: TaskItem[]; total: number }>(() => api.tasks());
+  const allTasks = tasksQuery.data?.list ?? [];
+
   const filteredTasks = useMemo(() => {
-    return ALL_TASKS.filter((t) => {
+    return allTasks.filter((t) => {
       if (filterTab === 'ongoing' && t.status === '已结案') return false;
       if (filterTab === 'closed' && t.status !== '已结案') return false;
       if (filterTab === 'high_priority' && t.priority !== '高') return false;
@@ -47,7 +52,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
       }
       return true;
     });
-  }, [filterTab, searchKey]);
+  }, [allTasks, filterTab, searchKey]);
 
   const paginatedTasks = useMemo(() => {
     const start = (currentPage - 1) * pageSize;
@@ -122,7 +127,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400 tabular-nums">
-          共 16 个案件 · 9 进行中 / 7 已结案 &nbsp;&nbsp;数据更新 2026-11-05 09:41
+          共 {allTasks.length} 个案件 ·{' '}
+          {allTasks.filter((t) => t.status !== '已结案').length} 进行中 /{' '}
+          {allTasks.filter((t) => t.status === '已结案').length} 已结案
         </div>
       </div>
 
@@ -132,9 +139,9 @@ export const TasksView: React.FC<TasksViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">案件总数</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">16</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{allTasks.length}</span>
             <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-1 py-0.2 rounded">
-              本月新增 +8
+              本月新增 {allTasks.filter((t) => t.id >= 'ZT-2026-0018').length}
             </span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
@@ -146,11 +153,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">进行中</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">9</span>
-            <span className="text-[10px] text-slate-400">其中 6 个处于第 8 环节</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{allTasks.filter((t) => t.status !== '已结案').length}</span>
+            <span className="text-[10px] text-slate-400">其中 {allTasks.filter((t) => t.stageProgressNum === 8).length} 个处于第 8 环节</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '56%' }}></div>
+            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: `${allTasks.length ? Math.round((allTasks.filter((t) => t.status !== '已结案').length / allTasks.length) * 100) : 0}%` }}></div>
           </div>
         </div>
 
@@ -158,11 +165,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">已结案</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">7</span>
-            <span className="text-[10px] text-slate-400">结案率 44%</span>
+            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">{allTasks.filter((t) => t.status === '已结案').length}</span>
+            <span className="text-[10px] text-slate-400">结案率 {allTasks.length ? Math.round((allTasks.filter((t) => t.status === '已结案').length / allTasks.length) * 100) : 0}%</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '44%' }}></div>
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${allTasks.length ? Math.round((allTasks.filter((t) => t.status === '已结案').length / allTasks.length) * 100) : 0}%` }}></div>
           </div>
         </div>
 
@@ -290,7 +297,25 @@ export const TasksView: React.FC<TasksViewProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {paginatedTasks.map((task) => {
+              {tasksQuery.error && !tasksQuery.loading ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-2">
+                    <LoadErrorBar message={tasksQuery.error} onRetry={tasksQuery.reload} />
+                  </td>
+                </tr>
+              ) : tasksQuery.loading ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-2">
+                    <LoadingCards rows={3} />
+                  </td>
+                </tr>
+              ) : paginatedTasks.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-[12px] text-slate-400">
+                    没有符合条件的核查任务
+                  </td>
+                </tr>
+              ) : paginatedTasks.map((task) => {
                 const isSelected = selectedIds.includes(task.id);
                 return (
                   <tr

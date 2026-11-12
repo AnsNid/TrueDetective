@@ -3,6 +3,8 @@ import { Row2FunnelAndCredibility } from '../Row2FunnelAndCredibility';
 import { Row3CasesAndCharts } from '../Row3CasesAndCharts';
 import { Row4TrendsAndHeatmap } from '../Row4TrendsAndHeatmap';
 import { AuthenticatedUser } from '../LoginPage';
+import { LoadErrorBar } from '../../api/hooks';
+import type { DashboardPayload } from '../../api/client';
 import {
   OngoingCaseItem,
   PendingReviewItem,
@@ -18,6 +20,10 @@ interface WorkbenchViewProps {
   onSelectCase: (item: OngoingCaseItem) => void;
   onViewAllCases: () => void;
   currentUser: AuthenticatedUser;
+  dashboard: DashboardPayload | null;
+  dashboardLoading: boolean;
+  dashboardError: string | null;
+  onReloadDashboard: () => void;
 }
 
 export function WorkbenchView({
@@ -29,7 +35,16 @@ export function WorkbenchView({
   onSelectCase,
   onViewAllCases,
   currentUser,
+  dashboard,
+  dashboardLoading,
+  dashboardError,
+  onReloadDashboard,
 }: WorkbenchViewProps) {
+  const now = new Date();
+  const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const timestamp = `${now.getFullYear()}年${pad(now.getMonth() + 1)}月${pad(now.getDate())}日 ${pad(now.getHours())}:${pad(now.getMinutes())} ${weekdays[now.getDay()]}`;
+
   return (
     <>
       {/* Page Title & Timestamp Header */}
@@ -44,12 +59,17 @@ export function WorkbenchView({
         </div>
 
         <div className="text-right text-[10.5px] text-slate-400 leading-snug tabular-nums ml-auto">
-          <div>2026年11月05日 09:41 星期四</div>
+          <div>{timestamp}</div>
           <div>
             真探工作室 · {currentUser.displayName}
           </div>
         </div>
       </div>
+
+      {/* 后端数据加载异常提示(保留页面其余区块) */}
+      {dashboardError && !dashboardLoading ? (
+        <LoadErrorBar message={`工作台数据加载失败:${dashboardError}`} onRetry={onReloadDashboard} />
+      ) : null}
 
       {/* Row 1: Cumulative Clues + 2x2 KPIs + Pending Manual Reviews */}
       <Row1Overview
@@ -60,17 +80,27 @@ export function WorkbenchView({
       />
 
       {/* Row 2: 9-Step Funnel + Source Credibility Radar */}
-      <Row2FunnelAndCredibility />
+      <Row2FunnelAndCredibility
+        funnelSteps={dashboard?.funnelSteps}
+        credibilityAxes={dashboard?.credibilityAxes}
+        credibilityTiers={dashboard?.credibilityTiers}
+      />
 
       {/* Row 3: Conclusion Distribution + Ongoing Cases + Image Authenticity */}
       <Row3CasesAndCharts
         ongoingCases={ongoingCases}
         onSelectCase={onSelectCase}
         onViewAllCases={onViewAllCases}
+        conclusionDistribution={dashboard?.conclusionDistribution}
+        imageAuthSegments={dashboard?.imageAuthSegments}
       />
 
       {/* Row 4: 12-Week Trend Chart + 24x7 Submission Heatmap */}
-      <Row4TrendsAndHeatmap />
+      <Row4TrendsAndHeatmap
+        weeklyTrends={dashboard?.weeklyTrends}
+        heatmapDays={dashboard?.heatmap?.days}
+        heatmapMatrix={dashboard?.heatmap?.matrix}
+      />
     </>
   );
 }

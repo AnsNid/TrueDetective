@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import {
-  EVIDENCE_ITEMS,
   EvidenceItem,
 } from '../../data/viewsData';
 import {
@@ -14,6 +13,8 @@ import {
   ShieldCheck,
   Check,
 } from 'lucide-react';
+import { api } from '../../api/client';
+import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 interface EvidenceViewProps {
   onSelectCase?: (caseId: string) => void;
@@ -25,8 +26,18 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
   const [searchKey, setSearchKey] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
 
+  // 后端证据库
+  const evidenceQuery = useApiData<{ list: EvidenceItem[] }>(() => api.evidence());
+  const allEvidence = evidenceQuery.data?.list ?? [];
+
+  // 统计卡片(由后端数据计算)
+  const evidenceTotal = allEvidence.length;
+  const evidenceCaseCount = new Set(allEvidence.map((e) => e.caseId)).size;
+  const relationCount = (rel: string) => allEvidence.filter((e) => e.relation === rel).length;
+  const relationPct = (rel: string) => (evidenceTotal ? Math.round((relationCount(rel) / evidenceTotal) * 100) : 0);
+
   const filteredEvidence = useMemo(() => {
-    return EVIDENCE_ITEMS.filter((item) => {
+    return allEvidence.filter((item) => {
       if (relationFilter !== '全部' && item.relation !== relationFilter) return false;
       if (sourceTypeFilter !== '全部信源' && item.sourceType !== sourceTypeFilter) return false;
       if (searchKey.trim()) {
@@ -40,7 +51,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
       }
       return true;
     });
-  }, [relationFilter, sourceTypeFilter, searchKey]);
+  }, [allEvidence, relationFilter, sourceTypeFilter, searchKey]);
 
   const handleExport = () => {
     setCopiedToast(true);
@@ -99,11 +110,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
             证据库
           </h1>
           <p className="text-[11px] text-slate-400 mt-0.5">
-            全部核查案件的证据条目，共 12 条 · 支持 / 反驳 / 背景 / 待确认四类关系
+            全部核查案件的证据条目，共 {evidenceTotal} 条 · 支持 / 反驳 / 背景 / 待确认四类关系
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400 tabular-nums">
-          最近同步 2026-11-05 09:12 · 信源评级每日刷新
+          最近同步 {new Date().toLocaleDateString('zh-CN')} · 信源评级每日刷新
         </div>
       </div>
 
@@ -113,8 +124,8 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">证据条目</div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">12</span>
-            <span className="text-[10px] text-slate-400">覆盖 3 个案件</span>
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{evidenceTotal}</span>
+            <span className="text-[10px] text-slate-400">覆盖 {evidenceCaseCount} 个案件</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
             <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '100%' }}></div>
@@ -125,11 +136,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">支持证据</div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">6</span>
-            <span className="text-[10px] text-slate-400">占比 50%</span>
+            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">{relationCount('支持')}</span>
+            <span className="text-[10px] text-slate-400">占比 {relationPct('支持')}%</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '50%' }}></div>
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${relationPct('支持')}%` }}></div>
           </div>
         </div>
 
@@ -137,11 +148,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">反驳证据</div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">2</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{relationCount('反驳')}</span>
             <span className="text-[10px] text-slate-400">主动检索，防确认偏误</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '17%' }}></div>
+            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: `${relationPct('反驳')}%` }}></div>
           </div>
         </div>
 
@@ -149,11 +160,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">背景证据</div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-slate-800 tabular-nums">3</span>
+            <span className="text-2xl font-extrabold text-slate-800 tabular-nums">{relationCount('背景')}</span>
             <span className="text-[10px] text-slate-400">不可单独替代直接证据</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-slate-400 h-full rounded-full" style={{ width: '25%' }}></div>
+            <div className="bg-slate-400 h-full rounded-full" style={{ width: `${relationPct('背景')}%` }}></div>
           </div>
         </div>
 
@@ -161,11 +172,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs col-span-2 sm:col-span-1">
           <div className="text-[11px] text-slate-500 font-medium">待确认</div>
           <div className="mt-1 flex items-baseline gap-1.5">
-            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">1</span>
+            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">{relationCount('待确认')}</span>
             <span className="text-[10px] text-slate-400">需补充一手材料</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: '8%' }}></div>
+            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${relationPct('待确认')}%` }}></div>
           </div>
         </div>
       </div>
@@ -243,7 +254,17 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredEvidence.map((item) => (
+                  {evidenceQuery.error && !evidenceQuery.loading ? (
+                    <div className="px-3 py-2">
+                      <LoadErrorBar message={evidenceQuery.error} onRetry={evidenceQuery.reload} />
+                    </div>
+                  ) : evidenceQuery.loading ? (
+                    <LoadingCards rows={3} />
+                  ) : filteredEvidence.length === 0 ? (
+                    <div className="px-3 py-8 text-center text-[12px] text-slate-400">
+                      暂无符合条件的证据材料
+                    </div>
+                  ) : filteredEvidence.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 pl-4 pr-2 font-mono tabular-nums text-slate-600 whitespace-nowrap text-[11px]">
                         {onSelectCase ? (
@@ -289,7 +310,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
             {/* Table Footer */}
             <div className="px-4 py-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
               <div>
-                共 12 条证据 · 4 类关系 · 6 类信源 · 转载不计独立证据
+                共 {evidenceTotal} 条证据 · 4 类关系 · 6 类信源 · 转载不计独立证据
               </div>
               <div className="flex items-center gap-2">
                 <button

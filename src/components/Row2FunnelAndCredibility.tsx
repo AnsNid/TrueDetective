@@ -6,13 +6,23 @@ import {
 } from '../data/dashboardData';
 import { computeRadarPolygonPoints } from '../utils/dashboardLogic';
 
-export const Row2FunnelAndCredibility: React.FC = () => {
+interface Row2Props {
+  funnelSteps?: typeof FUNNEL_STEPS;
+  credibilityAxes?: typeof SOURCE_CREDIBILITY_AXES;
+  credibilityTiers?: { label: string; percentage: number; color: string; textClass?: string }[];
+}
+
+export const Row2FunnelAndCredibility: React.FC<Row2Props> = ({
+  funnelSteps = FUNNEL_STEPS,
+  credibilityAxes = SOURCE_CREDIBILITY_AXES,
+  credibilityTiers = SOURCE_CREDIBILITY_TIERS,
+}) => {
   const centerX = 135;
   const centerY = 92;
   const maxRadius = 62;
 
   const radarVertices = computeRadarPolygonPoints(
-    SOURCE_CREDIBILITY_AXES,
+    credibilityAxes,
     centerX,
     centerY,
     maxRadius
@@ -22,7 +32,7 @@ export const Row2FunnelAndCredibility: React.FC = () => {
   // Concentric hexagon rings at 33%, 66%, 100%
   const ringRatios = [0.33, 0.66, 1];
   const getHexagonRingPoints = (ratio: number) => {
-    return SOURCE_CREDIBILITY_AXES.map((_, idx) => {
+    return credibilityAxes.map((_, idx) => {
       const angle = -Math.PI / 2 + (idx * 2 * Math.PI) / 6;
       const r = maxRadius * ratio;
       const x = (centerX + r * Math.cos(angle)).toFixed(2);
@@ -52,7 +62,7 @@ export const Row2FunnelAndCredibility: React.FC = () => {
 
           {/* 9 Funnel Steps (3x3 grid on mobile <md, 9-column chevron bar on md+) */}
           <div className="grid grid-cols-3 md:grid-cols-9 gap-2.5 md:gap-[2px]">
-            {FUNNEL_STEPS.map((step, index) => {
+            {funnelSteps.map((step, index) => {
               const isFirst = index === 0;
               const clipPath = isFirst
                 ? 'polygon(0% 0%, calc(100% - 7px) 0%, 100% 50%, calc(100% - 7px) 100%, 0% 100%)'
@@ -160,7 +170,7 @@ export const Row2FunnelAndCredibility: React.FC = () => {
               ))}
 
               {/* Radial Axis Spokes */}
-              {SOURCE_CREDIBILITY_AXES.map((_, idx) => {
+              {credibilityAxes.map((_, idx) => {
                 const angle = -Math.PI / 2 + (idx * 2 * Math.PI) / 6;
                 const x2 = (centerX + maxRadius * Math.cos(angle)).toFixed(2);
                 const y2 = (centerY + maxRadius * Math.sin(angle)).toFixed(2);
@@ -229,11 +239,14 @@ export const Row2FunnelAndCredibility: React.FC = () => {
 
           {/* Right Bars (5 cols on sm+) */}
           <div className="sm:col-span-5 flex flex-col justify-center space-y-2.5 pr-1">
-            {SOURCE_CREDIBILITY_TIERS.map((tier) => (
+            {credibilityTiers.map((tier) => (
               <div key={tier.label}>
                 <div className="flex items-center justify-between text-[11.5px] mb-1">
                   <span className="text-slate-600 font-medium">{tier.label}</span>
-                  <span className={`font-bold tabular-nums ${tier.textClass}`}>
+                  <span
+                    className="font-bold tabular-nums"
+                    style={{ color: tier.color }}
+                  >
                     {tier.percentage}%
                   </span>
                 </div>

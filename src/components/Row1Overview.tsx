@@ -227,7 +227,9 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
               <h2 className="text-[13px] font-bold text-[#0F172A]">
                 待人工审核
-                <span className="text-[#EF4444] font-bold ml-1.5 tabular-nums">12</span>
+                <span className="text-[#EF4444] font-bold ml-1.5 tabular-nums">
+                  {pendingReviews.length}
+                </span>
               </h2>
             </div>
             <button
