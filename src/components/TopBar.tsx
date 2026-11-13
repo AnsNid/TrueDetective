@@ -44,9 +44,9 @@ export const TopBar: React.FC<TopBarProps> = ({
           </button>
           <div className="flex items-center gap-1.5 sm:hidden">
             <span className="w-6 h-6 rounded-[6px] bg-[#2563EB] text-white font-bold text-xs flex items-center justify-center">
-              真
+              核
             </span>
-            <span className="font-bold text-[15px] text-[#0F172A]">真探</span>
+            <span className="font-bold text-[13px] text-[#0F172A] whitespace-nowrap">海外涉华信息智能核查平台</span>
           </div>
         </div>
 

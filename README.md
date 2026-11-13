@@ -1,8 +1,6 @@
 <div align="center">
 
-# 真探 · TrueDetective
-
-**海外涉华信息智能核查平台**
+# 海外涉华信息智能核查平台
 
 求真 · 求证 · 求实
 
@@ -43,7 +41,7 @@
 
 ## 🚀 快速开始
 
-### 1. 启动后端(真探 detective 服务)
+### 1. 启动后端(detective 服务)
 
 ```bash
 cd /path/to/hyperf

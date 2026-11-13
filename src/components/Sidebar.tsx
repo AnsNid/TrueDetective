@@ -48,18 +48,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div>
         {/* Brand Header */}
         <div className="px-5 pt-5 pb-4 flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-[7px] bg-[#2563EB] flex items-center justify-center text-white font-bold text-sm shadow-sm shrink-0">
-                真
-              </div>
-              <span className="text-white font-bold text-[19px] tracking-tight leading-none">
-                真探
-              </span>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-[8px] bg-[#2563EB] flex items-center justify-center text-white font-bold text-base shadow-sm shrink-0">
+              核
             </div>
-            <p className="text-[11px] text-slate-400/90 mt-2 tracking-wide leading-tight">
-              海外涉华信息智能核查平台
-            </p>
+            <div className="text-white font-bold text-[13px] leading-[1.3] tracking-tight">
+              <div>海外涉华信息</div>
+              <div>智能核查平台</div>
+            </div>
           </div>
 
           {isMobileDrawer && onCloseMobile ? (
@@ -114,7 +110,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Bottom Studio Signature */}
       <div className="px-5 py-4 text-[11px] text-slate-500 leading-relaxed">
-        <div className="font-medium text-slate-400/80">真探工作室</div>
+        <div className="font-medium text-slate-400/80">海外涉华信息智能核查平台</div>
         <div className="mt-0.5 tracking-wider text-slate-500">求真 · 求证 · 求实</div>
       </div>
     </>

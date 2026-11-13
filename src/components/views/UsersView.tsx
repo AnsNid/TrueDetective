@@ -187,7 +187,7 @@ export const UsersView: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `真探成员表_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `核查平台成员表_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     showToast('成员表已导出 CSV');

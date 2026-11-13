@@ -109,7 +109,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         {!imgError ? (
           <img
             src={loginBgUrl}
-            alt="真探全球涉华信息智能核查中心"
+            alt="海外涉华信息智能核查平台"
             referrerPolicy="no-referrer"
             onError={() => setImgError(true)}
             className="absolute inset-0 w-full h-full object-cover object-center scale-[1.01]"
@@ -130,14 +130,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         <div className="relative z-10 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-[9px] bg-[#2563EB] flex items-center justify-center text-white font-bold text-lg shadow-md shrink-0">
-              真
+              核
             </div>
             <div>
-              <div className="text-white font-bold text-[21px] tracking-tight leading-none">
-                真探
+              <div className="text-white font-bold text-[18px] tracking-tight leading-none">
+                海外涉华信息智能核查平台
               </div>
               <div className="text-[11.5px] text-slate-300/90 mt-1 tracking-wide">
-                海外涉华信息智能核查平台
+                求真 · 求证 · 求实
               </div>
             </div>
           </div>
@@ -216,15 +216,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         <div className="flex lg:hidden items-center justify-between pb-2 border-b border-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-[7px] bg-[#2563EB] flex items-center justify-center text-white font-bold text-sm shadow-xs shrink-0">
-              真
+              核
             </div>
-            <span className="font-bold text-[17px] tracking-tight text-[#0F172A]">
-              真探
-            </span>
-            <span aria-hidden="true" className="text-slate-300 text-xs">
-              ·
-            </span>
-            <span className="text-[12px] text-slate-500 truncate">
+            <span className="font-bold text-[15px] tracking-tight text-[#0F172A] whitespace-nowrap">
               海外涉华信息智能核查平台
             </span>
           </div>
@@ -244,7 +238,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </h2>
             </div>
             <p className="text-[13px] text-slate-400 mt-1.5">
-              请输入真探工作室授权账号与密码进入核查工作台
+              请输入核查工作室授权账号与密码进入核查工作台
             </p>
           </div>
 
@@ -414,7 +408,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
         {/* Bottom Studio Footer */}
         <footer className="text-center lg:text-left text-[11.5px] text-slate-400 flex items-center justify-center lg:justify-between gap-2">
-          <span>真探工作室 · 海外涉华信息智能核查平台</span>
+          <span>海外涉华信息智能核查平台</span>
           <span className="hidden sm:inline text-slate-300">求真 · 求证 · 求实</span>
         </footer>
       </main>

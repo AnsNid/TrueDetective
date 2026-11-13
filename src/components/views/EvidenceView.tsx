@@ -90,7 +90,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `真探证据表_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `核查平台证据表_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
     setCopiedToast(true);

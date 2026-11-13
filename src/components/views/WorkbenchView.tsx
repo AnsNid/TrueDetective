@@ -61,7 +61,7 @@ export function WorkbenchView({
         <div className="text-right text-[10.5px] text-slate-400 leading-snug tabular-nums ml-auto">
           <div>{timestamp}</div>
           <div>
-            真探工作室 · {currentUser.displayName}
+            海外涉华信息智能核查平台 · {currentUser.displayName}
           </div>
         </div>
       </div>
