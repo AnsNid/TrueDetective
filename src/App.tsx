@@ -252,9 +252,15 @@ function AppShell() {
           onSearchChange={setSearchQuery}
           activeTimeRange={activeTimeRange}
           onTimeRangeChange={setActiveTimeRange}
-          onOpenNotifications={() =>
-            handleTriggerBanner('当前有 12 条待人工审核案件提醒，最近一条来自王思思 (ZT-2026-0017)')
-          }
+          onOpenNotifications={() => {
+            const pending = dashboard.data?.pendingCount ?? 0;
+            const latest = dashboard.data?.pendingReviews?.[0];
+            handleTriggerBanner(
+              pending > 0
+                ? `当前有 ${pending} 条待人工审核案件提醒${latest ? `，最近一条来自 ${latest.submitter} (${latest.caseId})` : ''}`
+                : '当前没有待人工审核案件'
+            );
+          }}
           onLogoutClick={() => {
             clearSavedToken();
             setIsAuthenticated(false);
@@ -339,6 +345,7 @@ function AppShell() {
                 <TasksView
                   onOpenNewClue={() => navigate('/clues')}
                   onSelectTask={(task) => openCase(task.id)}
+                  currentUserRole={currentUser.roleLabel}
                 />
               }
             />

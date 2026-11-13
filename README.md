@@ -12,6 +12,8 @@
 
 面向核查工作台的全栈应用：前端 React SPA + 后端 X-PHP `detective` 独立服务，覆盖线索接入、九环节核查漏斗、证据溯源、多语种交叉验证到人工审核结案的全流程。
 
+> **AI 内核**:初筛/主张拆解/交叉验证/报告生成走真实 LLM(openai 模块多供应商路由);检索/出处追踪走 Tavily 联网搜索(需配置 `TAVILY_API_KEY`)。未启用的能力在各环节以「未启用」徽章如实标注,不伪装。
+
 ## ✨ 功能模块
 
 | 模块 | 路由 | 说明 | 后端接口 |
@@ -28,6 +30,8 @@
 | 用户管理 | `/users` | 成员增改、启停状态、操作审计日志 | `GET/POST /users` `PUT/DELETE /users/{id}` `GET /auditLogs` |
 
 - **真实登录**：登录/鉴权走后端 Passport,token 全局存储于 `localStorage` 的 `x-token`;401 自动清理本地会话
+- **接口级 RBAC**:管理员/审核员/核查员三角色;终审仅审核员+管理员、成员管理与案件删除仅管理员;操作人/审核人一律取服务端会话身份
+- **统计全真实**:漏斗/热力图/周趋势/KPI/结论分布/成员产出全部由数据表实时聚合,无写死数字
 - **URL 路由**：Hash 模式(`/#/workbench`),深链接可直接分享案件地址
 - **响应式**：桌面固定侧边栏、移动端抽屉菜单;图表按容器宽度自适应
 
@@ -52,7 +56,8 @@ php index.php start detective
 ```
 
 > 后端代码改动后需 `rm -rf runtime/container` 清 DI 缓存再重启。
-> 演示账号:`zhangming@zhentan.org / Zt@2026Admin`(管理员)、`wangsisi@zhentan.org / Zt@2026Verify`(核查员)。
+> 演示账号:`zhangming@zhentan.org / Zt@2026Admin`(管理员)、`wangsisi@zhentan.org / Zt@2026Verify`(核查员,验证 RBAC 用)。
+> 可选配置:`TAVILY_API_KEY`(联网搜索)、`DETECTIVE_AI_MODEL`(指定 LLM,默认跟随 openai 模块路由表)、`DETECTIVE_CORS_ALLOW_ORIGINS`(CORS 白名单,默认本机 3000 端口)。
 
 ### 2. 启动前端
 

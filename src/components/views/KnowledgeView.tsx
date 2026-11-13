@@ -1,42 +1,50 @@
 import React, { useState, useMemo } from 'react';
 import {
-  KnowledgeItem,
-} from '../../data/viewsData';
-import {
   BookOpen,
   Plus,
-  Upload,
   Info,
   CheckCircle2,
   Edit3,
   ExternalLink,
   Search,
+  Trash2,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import type { KnowledgeItemApi } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
+
+const CATEGORIES = ['全部条目', '核查规范', '核查方法', '信源分级', '典型案例'] as const;
+
+interface KnowledgeFormState {
+  id?: number;
+  title: string;
+  category: string;
+  content: string;
+  keyRule: string;
+}
+
+const emptyForm: KnowledgeFormState = { title: '', category: '核查规范', content: '', keyRule: '' };
 
 export const KnowledgeView: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<string>('全部条目');
   const [searchKey, setSearchKey] = useState('');
-  const [detailModalItem, setDetailModalItem] = useState<KnowledgeItem | null>(null);
+  const [detailModalItem, setDetailModalItem] = useState<KnowledgeItemApi | null>(null);
+  const [formModal, setFormModal] = useState<KnowledgeFormState | null>(null);
+  const [formSaving, setFormSaving] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
 
   // 后端知识库条目
-  const knowledgeQuery = useApiData<{ list: KnowledgeItem[] }>(() => api.knowledge());
+  const knowledgeQuery = useApiData<{ list: KnowledgeItemApi[]; role: string }>(() => api.knowledge());
   const allItems = knowledgeQuery.data?.list ?? [];
+  const myRole = knowledgeQuery.data?.role ?? '核查员';
+  const canEdit = myRole === '管理员' || myRole === '审核员';
+  const canDelete = myRole === '管理员';
 
-  // 统计卡片(由后端数据计算)
-  const totalItems = allItems.length;
-  const categoryNames = ['全部条目', '核查规范', '核查方法', '信源分级', '典型案例'];
-  const categoryRows = categoryNames.map((name) => ({
-    name,
-    count: name === '全部条目' ? totalItems : allItems.filter((i) => i.category === name).length,
-  }));
-  const categoryCount = new Set(allItems.map((i) => i.category)).size;
-  const topCitations = allItems.reduce((max, i) => Math.max(max, i.citations), 0);
-  const caseStudyCount = allItems.filter((i) => i.category === '典型案例').length;
-  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
-  const staleCount = allItems.filter((i) => (i.updatedDate || '').replace(/-/g, '') < monthAgo).length;
-  const latestUpdate = allItems.reduce((max, i) => (i.updatedDate > max ? i.updatedDate : max), '');
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const filteredItems = useMemo(() => {
     return allItems.filter((item) => {
@@ -55,6 +63,69 @@ export const KnowledgeView: React.FC = () => {
     });
   }, [allItems, activeCategory, searchKey]);
 
+  // 统计卡片(由后端数据计算)
+  const totalItems = allItems.length;
+  const categoryRows = CATEGORIES.map((name) => ({
+    name,
+    count: name === '全部条目' ? totalItems : allItems.filter((i) => i.category === name).length,
+  }));
+  const topCitations = allItems.reduce((max, i) => Math.max(max, i.citations), 0);
+  const caseStudyCount = allItems.filter((i) => i.category === '典型案例').length;
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10).replace(/-/g, '');
+  const staleCount = allItems.filter((i) => (i.updatedDate || '').replace(/-/g, '') < monthAgo).length;
+  const latestUpdate = allItems.reduce((max, i) => (i.updatedDate > max ? i.updatedDate : max), '');
+
+  const openCreate = () => setFormModal({ ...emptyForm });
+  const openEdit = (item: KnowledgeItemApi) =>
+    setFormModal({
+      id: item.id,
+      title: item.title,
+      category: item.category,
+      content: item.content,
+      keyRule: item.keyRule,
+    });
+
+  const handleSaveForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!formModal || formSaving) return;
+    if (!formModal.title.trim()) {
+      setFormError('条目标题不能为空');
+      return;
+    }
+    setFormSaving(true);
+    setFormError(null);
+    try {
+      const payload = {
+        title: formModal.title.trim(),
+        category: formModal.category,
+        content: formModal.content,
+        keyRule: formModal.keyRule,
+      };
+      const res = formModal.id
+        ? await api.updateKnowledge(formModal.id, payload)
+        : await api.createKnowledge(payload);
+      if (res.code === 200) {
+        setFormModal(null);
+        showToast(formModal.id ? '知识条目已更新' : '知识条目已创建');
+        knowledgeQuery.reload();
+      } else {
+        setFormError(res.message || '保存失败');
+      }
+    } finally {
+      setFormSaving(false);
+    }
+  };
+
+  const handleDelete = async (item: KnowledgeItemApi) => {
+    if (!window.confirm(`确定删除条目「${item.title}」吗？`)) return;
+    const res = await api.deleteKnowledge(item.id);
+    showToast(res.code === 200 ? '知识条目已删除' : res.message || '删除失败');
+    if (res.code === 200) {
+      setDetailModalItem(null);
+      knowledgeQuery.reload();
+    }
+  };
+
   const getCategoryBadgeClass = (category: string) => {
     switch (category) {
       case '核查规范':
@@ -66,12 +137,22 @@ export const KnowledgeView: React.FC = () => {
       case '典型案例':
         return 'bg-purple-50 text-purple-600 border border-purple-200';
       default:
-        return 'bg-slate-100 text-slate-600';
+        return 'bg-slate-100 text-slate-500 border border-slate-200';
     }
   };
 
   return (
     <div className="space-y-3.5">
+      {/* Toast */}
+      {toast && (
+        <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-lg flex items-center justify-between shadow-sm">
+          <span>✓ {toast}</span>
+          <button onClick={() => setToast(null)} className="text-blue-800 font-semibold underline cursor-pointer">
+            知道了
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
@@ -89,31 +170,29 @@ export const KnowledgeView: React.FC = () => {
 
       {/* 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {/* Card 1 */}
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">知识条目</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-extrabold text-slate-900 tabular-nums">{totalItems}</span>
-            <span className="text-[10px] text-slate-400">{categoryCount} 个分类</span>
+            <span className="text-[10px] text-slate-400">{CATEGORIES.length - 1} 个分类</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
             <div className="bg-blue-600 h-full rounded-full" style={{ width: '100%' }}></div>
           </div>
         </div>
-
-        {/* Card 2 */}
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">最高引用条目</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{topCitations}<span className="text-sm font-normal text-slate-500">次</span></span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">
+              {topCitations}
+              <span className="text-sm font-normal text-slate-500">次</span>
+            </span>
             <span className="text-[10px] text-slate-400">核查环节自动呼出</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
             <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '82%' }}></div>
           </div>
         </div>
-
-        {/* Card 3 */}
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">教学案例</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -124,8 +203,6 @@ export const KnowledgeView: React.FC = () => {
             <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${Math.min(100, caseStudyCount * 14)}%` }}></div>
           </div>
         </div>
-
-        {/* Card 4 */}
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">待复核条目</div>
           <div className="mt-1 flex items-baseline gap-2">
@@ -140,7 +217,7 @@ export const KnowledgeView: React.FC = () => {
 
       {/* 2-Column Main Section */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
-        {/* Left Column (3.5 cols) */}
+        {/* Left Column (4 cols) */}
         <div className="lg:col-span-4 space-y-3.5">
           {/* Categories Card */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
@@ -165,8 +242,8 @@ export const KnowledgeView: React.FC = () => {
                 >
                   <span>{cat.name}</span>
                   <span
-                    className={`text-[11px] tabular-nums ${
-                      activeCategory === cat.name ? 'text-blue-100' : 'text-slate-400'
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                      activeCategory === cat.name ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500'
                     }`}
                   >
                     {cat.count}
@@ -174,173 +251,255 @@ export const KnowledgeView: React.FC = () => {
                 </button>
               ))}
             </div>
-
-            <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
-              <button
-                type="button"
-                className="flex-1 py-1.5 bg-[#2563EB] hover:bg-blue-700 text-white rounded-lg text-[11px] font-medium flex items-center justify-center gap-1 transition-colors cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                新建条目
-              </button>
-              <button
-                type="button"
-                className="py-1.5 px-3 bg-white hover:bg-slate-50 text-slate-600 border border-slate-300 rounded-lg text-[11px] font-medium transition-colors cursor-pointer"
-              >
-                批量导入
-              </button>
-            </div>
           </div>
 
-          {/* Usage Principles Card */}
-          <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3 text-[11px]">
+          {/* Actions Card */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
             <div className="flex items-center gap-1.5 font-bold text-[12.5px] text-[#0F172A] border-b border-slate-100 pb-2">
               <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
-              使用原则
+              条目维护
             </div>
-
-            <p className="text-slate-600 leading-relaxed text-[11px]">
-              官方文件只支持事实层，不能单独支持对性质、意图或动机做出的“定性”或“定性结论”，不允反向倒推。
+            <button
+              onClick={openCreate}
+              disabled={!canEdit}
+              className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#2563EB] hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-[12px] font-medium cursor-pointer transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              {canEdit ? '新建条目' : '新建(需审核员/管理员)'}
+            </button>
+            <p className="text-[10.5px] text-slate-400 leading-relaxed">
+              {canEdit
+                ? '当前角色可新增与编辑条目;删除仅管理员可操作。'
+                : `当前角色「${myRole}」仅可浏览,新增/编辑需要审核员或管理员。`}
             </p>
-
-            <p className="text-slate-600 leading-relaxed text-[11px]">
-              智能体 → 核查员提要素；成员核验与复核留痕；审核员最终定论；AI 不直接判定真假。
-            </p>
-
-            {/* Role Workflows */}
-            <div className="space-y-2 pt-2 border-t border-slate-100">
-              <div className="flex items-center justify-between p-1.5 rounded bg-slate-50">
-                <span className="text-slate-500">智能体</span>
-                <span className="font-semibold text-blue-600">提要素 · 检索</span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-slate-50">
-                <span className="text-slate-500">核查员</span>
-                <span className="font-semibold text-emerald-600">核验 · 留痕</span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-slate-50">
-                <span className="text-slate-500">审核员</span>
-                <span className="font-semibold text-amber-600">复核 · 定论</span>
-              </div>
-              <div className="flex items-center justify-between p-1.5 rounded bg-slate-50">
-                <span className="text-slate-500">管理员</span>
-                <span className="font-semibold text-slate-700">账号 · 知识库</span>
-              </div>
-            </div>
-
-            <div className="text-[10px] text-slate-400 pt-1 border-t border-slate-100 flex items-center justify-between">
-              <span>责任闭环 · 结论 8 类</span>
-            </div>
           </div>
         </div>
 
-        {/* Right Main Grid (8.5 cols) */}
-        <div className="lg:col-span-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {/* Right Column (8 cols): Items List */}
+        <div className="lg:col-span-8 bg-white border border-slate-200/90 rounded-xl shadow-xs overflow-hidden">
+          {/* List Header */}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-slate-100">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchKey}
+                onChange={(e) => setSearchKey(e.target.value)}
+                placeholder="搜索标题 / 内容 / 分类"
+                className="pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-[11.5px] w-56 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <span className="text-[11px] text-slate-400">{filteredItems.length} 条结果</span>
+          </div>
+
+          {/* Items */}
+          <div className="divide-y divide-slate-100">
             {knowledgeQuery.error && !knowledgeQuery.loading ? (
-              <LoadErrorBar message={knowledgeQuery.error} onRetry={knowledgeQuery.reload} />
+              <div className="px-4 py-3">
+                <LoadErrorBar message={knowledgeQuery.error} onRetry={knowledgeQuery.reload} />
+              </div>
             ) : knowledgeQuery.loading ? (
-              <LoadingCards rows={3} />
+              <div className="p-4">
+                <LoadingCards rows={3} />
+              </div>
             ) : filteredItems.length === 0 ? (
-              <div className="px-3 py-8 text-center text-[12px] text-slate-400">
+              <div className="px-4 py-10 text-center text-[12px] text-slate-400">
                 暂无符合条件的知识条目
               </div>
-            ) : filteredItems.map((item) => (
-              <div
-                key={item.id}
-                className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs flex flex-col justify-between space-y-2.5 hover:border-slate-300 transition-colors"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className={`px-1.5 py-0.2 rounded text-[10px] font-semibold ${getCategoryBadgeClass(
-                        item.category
-                      )}`}
-                    >
-                      {item.category}
-                    </span>
-                    <span className="text-[10px] text-slate-400">
-                      引用 {item.citations}次
-                    </span>
-                  </div>
-
-                  <h3 className="text-[12px] font-bold text-slate-900 mt-1.5 line-clamp-1">
-                    {item.title}
-                  </h3>
-
-                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-3 leading-relaxed">
-                    {item.content}
-                  </p>
-
-                  <div className="mt-2 p-1.5 rounded bg-slate-50 border border-slate-100 text-[10px] text-slate-500 whitespace-pre-line leading-relaxed">
-                    {item.keyRule}
+            ) : (
+              filteredItems.map((item) => (
+                <div
+                  key={item.id}
+                  className="px-4 py-3.5 hover:bg-slate-50/60 transition-colors cursor-pointer"
+                  onClick={() => setDetailModalItem(item)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-semibold ${getCategoryBadgeClass(item.category)}`}>
+                          {item.category}
+                        </span>
+                        {item.caseNo && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-emerald-50 text-emerald-600 border border-emerald-200">
+                            沉淀自 {item.caseNo}
+                          </span>
+                        )}
+                        <span className="text-[10px] text-slate-400">更新 {item.updatedDate}</span>
+                      </div>
+                      <div className="text-[13px] font-bold text-[#0F172A] mb-1">{item.title}</div>
+                      <p className="text-[11.5px] text-slate-500 leading-relaxed line-clamp-2">{item.content}</p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                        <Info className="w-3 h-3" /> {item.citations} 次引用
+                      </span>
+                      <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        {canEdit && (
+                          <button
+                            onClick={() => openEdit(item)}
+                            className="flex items-center gap-0.5 px-2 py-1 rounded text-[10.5px] text-slate-500 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors"
+                          >
+                            <Edit3 className="w-3 h-3" /> 编辑
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setDetailModalItem(item)}
+                          className="flex items-center gap-0.5 px-2 py-1 rounded text-[10.5px] text-slate-500 hover:text-blue-600 hover:bg-blue-50 cursor-pointer transition-colors"
+                        >
+                          <ExternalLink className="w-3 h-3" /> 详情
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                <div className="flex items-center justify-between text-[10.5px] pt-2 border-t border-slate-100 text-slate-400">
-                  <span>更新 {item.updatedDate}</span>
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => setDetailModalItem(item)}
-                      className="text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
-                    >
-                      编辑 · 详情
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* Detail / Edit Modal */}
+      {/* Detail Modal */}
       {detailModalItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 space-y-3">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-              <span
-                className={`px-2 py-0.5 rounded text-[10.5px] font-semibold ${getCategoryBadgeClass(
-                  detailModalItem.category
-                )}`}
-              >
-                {detailModalItem.category}
-              </span>
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+              <div>
+                <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-semibold mb-2 ${getCategoryBadgeClass(detailModalItem.category)}`}>
+                  {detailModalItem.category}
+                </span>
+                <h3 className="font-bold text-slate-900 text-[15px] leading-snug">{detailModalItem.title}</h3>
+              </div>
               <button
                 onClick={() => setDetailModalItem(null)}
-                className="text-slate-400 hover:text-slate-700 text-lg font-bold cursor-pointer"
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer shrink-0"
               >
                 ✕
               </button>
             </div>
 
-            <h3 className="text-base font-bold text-slate-900">
-              {detailModalItem.title}
-            </h3>
-
-            <div className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
-              {detailModalItem.content}
+            <div>
+              <div className="text-[11px] font-bold text-slate-500 mb-1">条目内容</div>
+              <p className="text-[12px] text-slate-700 leading-relaxed">{detailModalItem.content}</p>
             </div>
 
-            <div className="text-xs text-slate-500 whitespace-pre-line bg-blue-50/50 p-3 rounded-lg border border-blue-100">
-              <span className="font-bold text-blue-900 block mb-1">执行要点:</span>
-              {detailModalItem.keyRule}
-            </div>
+            {detailModalItem.keyRule && (
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 mb-1">关键规则</div>
+                <pre className="text-[11.5px] text-slate-600 whitespace-pre-wrap font-sans bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                  {detailModalItem.keyRule}
+                </pre>
+              </div>
+            )}
 
-            <div className="flex items-center justify-between pt-2 text-xs text-slate-400">
-              <span>引用统计: {detailModalItem.citations} 次</span>
-              <span>最后更新: {detailModalItem.updatedDate}</span>
+            <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-[11px] text-slate-400">
+              <span>更新于 {detailModalItem.updatedDate} · {detailModalItem.citations} 次引用</span>
+              <div className="flex items-center gap-2">
+                {canEdit && (
+                  <button
+                    onClick={() => {
+                      openEdit(detailModalItem);
+                      setDetailModalItem(null);
+                    }}
+                    className="px-3 py-1.5 rounded-lg bg-[#2563EB] hover:bg-blue-700 text-white text-[11.5px] font-medium cursor-pointer"
+                  >
+                    编辑
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    onClick={() => handleDelete(detailModalItem)}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 text-[11.5px] font-medium cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> 删除
+                  </button>
+                )}
+              </div>
             </div>
+          </div>
+        </div>
+      )}
 
-            <div className="pt-2 flex justify-end">
+      {/* Create/Edit Modal */}
+      {formModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 space-y-4 max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h3 className="font-bold text-slate-900 text-sm">
+                {formModal.id ? '编辑知识条目' : '新建知识条目'}
+              </h3>
               <button
-                type="button"
-                onClick={() => setDetailModalItem(null)}
-                className="px-4 py-1.5 bg-[#2563EB] text-white rounded-lg text-xs font-medium cursor-pointer"
+                onClick={() => setFormModal(null)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
               >
-                确定
+                ✕
               </button>
             </div>
+
+            <form onSubmit={handleSaveForm} className="space-y-3 text-xs">
+              {formError && (
+                <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px]">
+                  {formError}
+                </div>
+              )}
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">标题 *</label>
+                <input
+                  type="text"
+                  required
+                  value={formModal.title}
+                  onChange={(e) => setFormModal({ ...formModal, title: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">分类</label>
+                <select
+                  value={formModal.category}
+                  onChange={(e) => setFormModal({ ...formModal, category: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {CATEGORIES.filter((c) => c !== '全部条目').map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">条目内容</label>
+                <textarea
+                  rows={4}
+                  value={formModal.content}
+                  onChange={(e) => setFormModal({ ...formModal, content: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  关键规则 <span className="text-slate-400 font-normal">(每行一条)</span>
+                </label>
+                <textarea
+                  rows={3}
+                  value={formModal.keyRule}
+                  onChange={(e) => setFormModal({ ...formModal, keyRule: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+              <div className="pt-1 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFormModal(null)}
+                  className="px-4 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  disabled={formSaving}
+                  className="px-4 py-1.5 bg-[#2563EB] text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-blue-400 cursor-pointer disabled:cursor-not-allowed"
+                >
+                  {formSaving ? '正在保存…' : '保存'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -45,91 +45,10 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   onDeleteCase,
   onUpdateCaseStatus,
 }) => {
-  /** 后端加载失败时的占位模板 */
-  const buildFallbackDetail = (): FullCaseDetail => {
-    return {
-      id: 99,
-      case_no: caseId,
-      title: `海外涉华信息核查任务 (${caseId})`,
-      status: 'reporting',
-      stage: 8,
-      stage_name: '报告生成',
-      priority: '中',
-      assignee: currentUser.displayName,
-      final_conclusion: '误导',
-      screening_result: {
-        passed: true,
-        score: 92,
-        hit_keywords: ['中国', '涉华报道', '言论'],
-        reason: '内容包含具体可查证的涉华外宣指控，且涉及官方机构表态，符合深度核查标准。',
-        focus: '涉华舆情动态',
-        method: 'llm',
-        checked_at: new Date().toISOString(),
-      },
-      keywords: {
-        zh: '涉华报道 官方表态 事实核查',
-        en: 'China statement verification report analysis',
-        zh_official: '外交部 国防部 官方声明 新华社',
-      },
-      search_results: [],
-      trace_results: [],
-      source_evals: [],
-      running_log: [
-        { stage: 2, name: '价值初筛', ok: true, detail: '得分92，通过' },
-        { stage: 3, name: '主张拆解', ok: true, detail: '拆解 2 项主张' },
-        { stage: 4, name: '多语种检索', ok: true, detail: '检索到 6 条结果' },
-        { stage: 5, name: '出处追踪', ok: true, detail: '溯源完成' },
-        { stage: 6, name: '交叉验证', ok: true, detail: '证据 6 条，独立信源 5 个' },
-        { stage: 7, name: '信源评价', ok: true, detail: '完成 5 个信源六维评定' },
-        { stage: 8, name: '报告生成', ok: true, detail: '结论：误导' },
-      ],
-      clue: {
-        id: 99,
-        clue_no: `CLUE-${caseId}`,
-        title: `海外涉华信息核查任务 (${caseId})`,
-        content_type: 'text',
-        raw_text:
-          'Foreign media reported unverified claims regarding border movements, alleging systematic policy changes without primary official documents.',
-        translated_text:
-          '外媒援引未经证实的信息报道称边境管控发生变动，并声称存在系统性政策调整，但未附带原始官方文件。',
-        source_platform: '外媒报道',
-        source_account: '@GlobalWatch',
-        source_link: 'https://example.com/news/china-report',
-        published_at: '2026-10-18 14:00',
-        submitted_by: currentUser.displayName,
-        media_path: '',
-        image_url: '',
-      },
-      claims: [],
-      evidence: [],
-      report: {
-        id: 99,
-        preliminary_conclusion:
-          '指控层缺乏事实证据支持，中方官方权威实录事实清晰，属于片面采信与语境剥离导致的误导。',
-        summary:
-          '经综合多语种检索与交叉比对，外媒所称内容忽略中方公布的原始事实背景，主观定性多于事实依据，最终判定为“误导”。',
-        conclusion: '误导',
-        confidence: '高',
-        evidence_table: [],
-        source_links: [],
-        gaps: ['缺乏外媒所述一手技术监测数据'],
-        pending_items: ['核实原始发布时间戳与外媒转载衍生链条'],
-        generated_at: new Date().toISOString(),
-      },
-      reviews: [],
-    };
-  };
-
-  // 案件全量详情:从后端加载;加载中/失败时使用占位模板保持布局稳定
+  // 案件全量详情:从后端加载;失败展示错误态(不再编造占位数据)
   const [loadedCase, setLoadedCase] = useState<FullCaseDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const fallbackTemplate = React.useMemo(
-    () => buildFallbackDetail(),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [caseId, currentUser.displayName]
-  );
-  const caseData = loadedCase ?? fallbackTemplate;
 
   const loadCaseDetail = React.useCallback(() => {
     setDetailLoading(true);
@@ -162,11 +81,16 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   const [reviewAction, setReviewAction] = useState<'approved' | 'revised' | 'returned'>('approved');
   const [reviewComment, setReviewComment] = useState('');
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({
-    '打开原始账号核对发布日期': true,
-    '确认传播语境是否暗示近期事件': true,
-    '补充中文官方信源': true,
-  });
+  const [revisedConclusion, setRevisedConclusion] = useState('');
+  const [revisedConfidence, setRevisedConfidence] = useState('');
+  const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({});
+  // 审核清单由后端下发,加载后初始化勾选状态
+  useEffect(() => {
+    const checklist: string[] = (loadedCase as any)?.review_checklist || [];
+    if (checklist.length) {
+      setCheckItems(Object.fromEntries(checklist.map((item) => [item, true])));
+    }
+  }, [loadedCase]);
 
   // Trigger feedback toast
   const triggerToast = (msg: string) => {
@@ -255,10 +179,11 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     setSubmittingReview(true);
     try {
       const res = await api.submitReview(caseData.case_no, {
-        reviewer: reviewerName,
         action: reviewAction,
         comment: reviewComment.trim(),
         checkItems: selectedCheckItems,
+        conclusion: revisedConclusion,
+        confidence: revisedConfidence,
       });
       if (res.code === 200 && res.data?.detail) {
         setLoadedCase(res.data.detail as FullCaseDetail);
@@ -294,6 +219,78 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     window.print();
   };
 
+  // 沉淀为教学案例(已结案)
+  const handleDeposit = async () => {
+    const res = await api.depositCase(caseData.case_no);
+    triggerToast(res.code === 200 ? '已沉淀为知识库教学案例' : res.message || '沉淀失败');
+    if (res.code === 200) {
+      loadCaseDetail();
+    }
+  };
+
+  // 删除案件(管理员)
+  const handleDelete = async () => {
+    if (!window.confirm(`确定删除案件 ${caseData.case_no} 吗？`)) return;
+    const res = await api.deleteCase(caseData.case_no);
+    if (res.code === 200) {
+      if (onDeleteCase) onDeleteCase(caseData.case_no);
+      onBack();
+    } else {
+      triggerToast(res.message || '删除失败');
+    }
+  };
+
+  // 加载失败:错误态(所有 hooks 之后)
+  if (!loadedCase) {
+    if (detailError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-24">
+          <div className="w-10 h-10 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+          </div>
+          <div className="text-[14px] font-bold text-slate-700">案件加载失败</div>
+          <div className="text-[12px] text-slate-400 max-w-md text-center">{detailError}</div>
+          <div className="flex items-center gap-3 mt-1">
+            <button
+              type="button"
+              onClick={loadCaseDetail}
+              className="px-4 py-1.5 rounded-lg bg-[#2563EB] hover:bg-blue-700 text-white text-[12px] font-semibold cursor-pointer"
+            >
+              重新加载
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-[12px] text-slate-500 hover:text-slate-700 underline cursor-pointer"
+            >
+              返回列表
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="space-y-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="bg-white border border-slate-200/90 rounded-xl p-5 shadow-xs animate-pulse space-y-3">
+            <div className="h-3.5 w-48 bg-slate-100 rounded" />
+            <div className="h-3 w-3/4 bg-slate-50 rounded" />
+            <div className="h-3 w-2/3 bg-slate-50 rounded" />
+          </div>
+        ))}
+        <div className="flex items-center justify-center gap-2 py-4 text-slate-400 text-[12px]">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          正在加载案件 {caseId}…
+        </div>
+      </div>
+    );
+  }
+
+  const caseData = loadedCase;
+  const canReview = currentUser.roleLabel === '管理员' || currentUser.roleLabel === '审核员';
+  const canManage = currentUser.roleLabel === '管理员';
+  const isImageClue = caseData.clue.content_type === 'image';
+
   return (
     <div className="space-y-4 pb-12">
       {/* Toast Notification */}
@@ -310,10 +307,10 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         </div>
       )}
 
-      {/* 详情加载/错误提示 */}
-      {detailError ? (
+      {/* 详情刷新失败提示(仍展示上次成功数据) */}
+      {detailError && loadedCase ? (
         <div className="px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[12px] text-amber-700 flex items-center justify-between">
-          <span>⚠ {detailError}(当前展示占位数据)</span>
+          <span>⚠ {detailError}(当前展示上次加载的数据)</span>
           <button
             type="button"
             onClick={loadCaseDetail}
@@ -371,18 +368,19 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             导出报告 (PDF)
           </button>
 
-          {onDeleteCase && (
+          {caseData.status === 'done' && canReview && (
             <button
-              onClick={async () => {
-                if (!window.confirm(`确定删除案件 ${caseData.case_no} 吗？`)) return;
-                const res = await api.deleteCase(caseData.case_no);
-                if (res.code === 200) {
-                  if (onDeleteCase) onDeleteCase(caseData.case_no);
-                  onBack();
-                } else {
-                  triggerToast(res.message || '删除失败');
-                }
-              }}
+              onClick={handleDeposit}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-colors cursor-pointer"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              沉淀为教学案例
+            </button>
+          )}
+
+          {onDeleteCase && canManage && (
+            <button
+              onClick={handleDelete}
               className="flex items-center gap-1 px-2.5 py-1.5 text-rose-600 hover:bg-rose-50 rounded-lg text-[12px] transition-colors cursor-pointer"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -582,6 +580,24 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
               </div>
             </div>
 
+            {/* Clue Image (image/video 线索) */}
+            {caseData.clue.image_url && (
+              <div className="space-y-1.5">
+                <div className="text-[11px] text-slate-500 font-medium">线索图片</div>
+                <div className="p-2 bg-slate-50 rounded-lg border border-slate-200 flex justify-center">
+                  <img
+                    src={caseData.clue.image_url}
+                    alt={caseData.clue.title}
+                    referrerPolicy="no-referrer"
+                    className="max-h-72 rounded border border-slate-200 object-contain"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).style.display = 'none';
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Raw Text Box */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between text-[11px] text-slate-500 font-medium">
@@ -624,17 +640,40 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 环节 2 · 价值初筛结论
               </h2>
-              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                初筛得分: {caseData.screening_result.score}/100 · 通过
-              </span>
+              {caseData.screening_result && caseData.screening_result.score !== undefined ? (
+                <span
+                  className={`px-2 py-0.5 rounded text-[11px] font-bold border ${
+                    caseData.screening_result.method === 'llm'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                  }`}
+                >
+                  初筛得分: {caseData.screening_result.score}/100 ·{' '}
+                  {caseData.screening_result.passed ? '通过' : '未通过'} ·{' '}
+                  {caseData.screening_result.method === 'llm' ? 'LLM' : '模板'}
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-100 text-slate-500 border border-slate-200">
+                  未执行
+                </span>
+              )}
             </div>
 
+            {!caseData.screening_result || caseData.screening_result.score === undefined ? (
+              <div className="py-5 text-center text-[12px] text-slate-400">
+                尚未执行价值初筛，请点击上方「2.初筛」或一键自动核查。
+              </div>
+            ) : (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11.5px]">
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1">
                 <div className="text-slate-400 text-[10.5px]">关注领域</div>
                 <div className="font-bold text-slate-800">{caseData.screening_result.focus}</div>
                 <div className="text-slate-500 text-[10.5px] mt-1">
-                  评定方式: {caseData.screening_result.method.toUpperCase()} 智能初筛
+                  评定方式:{' '}
+                  {caseData.screening_result.method === 'llm'
+                    ? 'LLM 智能初筛'
+                    : '关键词模板初筛(LLM 未启用时降级)'}
                 </div>
               </div>
 
@@ -657,6 +696,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
               <span className="font-bold text-slate-800">初筛理由: </span>
               {caseData.screening_result.reason}
             </div>
+            </>
+            )}
 
             {/* If Image Clue: Image Authenticity Analysis */}
             {caseData.screening_result.image_analysis && (
@@ -758,6 +799,159 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             )}
           </div>
 
+          {/* Card: 多语种检索结果 (Stage 4) */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                <h2 className="text-[13px] font-bold text-[#0F172A]">
+                  环节 4 · 多语种检索结果 ({caseData.search_results.length} 条)
+                </h2>
+              </div>
+              {(caseData as any).pipeline_meta?.search === 'search' ? (
+                <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+                  Tavily 联网检索
+                </span>
+              ) : (caseData as any).pipeline_meta?.search === 'skip' ? (
+                <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                  纯图片线索 · 跳过
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
+                  联网搜索未启用
+                </span>
+              )}
+            </div>
+
+            {/* Keywords */}
+            {Object.keys(caseData.keywords ?? {}).length > 0 && (
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200/80 space-y-1.5">
+                <div className="text-[10.5px] text-slate-400 font-medium">检索关键词</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {Object.entries(caseData.keywords)
+                    .filter(([, v]) => v)
+                    .map(([lang, kw]) => (
+                      <span
+                        key={lang}
+                        className="px-2 py-0.5 rounded bg-white border border-slate-200 text-[10.5px] text-slate-600"
+                      >
+                        <span className="text-slate-400 font-bold uppercase mr-1">{lang}</span>
+                        {kw}
+                      </span>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {caseData.search_results.length === 0 ? (
+              <div className="py-5 text-center text-[12px] text-slate-400">
+                {(caseData as any).pipeline_meta?.search === 'skip'
+                  ? '纯图片线索，跳过文本检索。'
+                  : '暂无检索结果。联网搜索由 TAVILY_API_KEY 启用，未配置时本环节不产出数据。'}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {caseData.search_results.map((r, i) => (
+                  <div key={i} className="p-3 rounded-lg border border-slate-200 bg-slate-50/40 space-y-1.5">
+                    <div className="flex items-start justify-between gap-2">
+                      {r.url ? (
+                        <a
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[12px] text-blue-600 hover:underline font-medium leading-snug"
+                        >
+                          {r.title || r.url}
+                        </a>
+                      ) : (
+                        <span className="text-[12px] font-medium text-slate-700">{r.title}</span>
+                      )}
+                      <span className="px-1.5 py-0.5 rounded text-[10px] bg-white border border-slate-200 text-slate-500 whitespace-nowrap shrink-0">
+                        {r.source}
+                        {r.date ? ` · ${r.date}` : ''}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-relaxed line-clamp-2">{r.snippet}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Card: 出处追踪 (Stage 5) */}
+          <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
+                <h2 className="text-[13px] font-bold text-[#0F172A]">
+                  环节 5 · 出处追踪 ({caseData.trace_results.length} 条)
+                </h2>
+              </div>
+              {(caseData as any).pipeline_meta?.trace === 'search' ? (
+                <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+                  标题精确检索
+                </span>
+              ) : (caseData as any).pipeline_meta?.trace === 'unavailable' ? (
+                <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
+                  {isImageClue ? '反向搜图未启用' : '联网搜索未启用'}
+                </span>
+              ) : null}
+            </div>
+
+            {caseData.trace_results.length === 0 ? (
+              <div className="py-5 text-center text-[12px] text-slate-400">尚未执行出处追踪。</div>
+            ) : (
+              <div className="space-y-2">
+                {caseData.trace_results.map((t, i) => (
+                  <div
+                    key={i}
+                    className={`p-3 rounded-lg border space-y-1 ${
+                      t.warning
+                        ? 'bg-amber-50/60 border-amber-200'
+                        : 'border-slate-200 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        {t.url ? (
+                          <a
+                            href={t.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-[12px] text-blue-600 hover:underline font-medium leading-snug"
+                          >
+                            {t.matched_title || t.url}
+                          </a>
+                        ) : (
+                          <span className="text-[12px] font-medium text-slate-700">
+                            {t.matched_title}
+                          </span>
+                        )}
+                        <div className="text-[10.5px] text-slate-400 mt-0.5">
+                          {t.matched_site}
+                          {t.published_date ? ` · 最早 ${t.published_date}` : ''}
+                        </div>
+                      </div>
+                      {t.url && (
+                        <a
+                          href={t.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-blue-600 hover:underline text-[11px] flex items-center gap-0.5 shrink-0"
+                        >
+                          打开 <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
+                    {t.note && (
+                      <p className="text-[11px] text-slate-500 leading-relaxed">{t.note}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Card 4: 证据矩阵与交叉验证 (Stage 6) */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 sm:p-5 shadow-xs space-y-3.5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
@@ -768,7 +962,25 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                 </h2>
               </div>
               <div className="text-[11px] text-slate-500">
-                支持: <span className="font-bold text-emerald-600">2</span> · 反驳: <span className="font-bold text-rose-600">0</span> · 背景: <span className="font-bold text-slate-600">6</span>
+                {Object.entries(caseData.verification_results?.relation_stats ?? {}).map(
+                  ([rel, n], i) => (
+                    <span key={rel}>
+                      {i > 0 && ' · '}
+                      {rel}:{' '}
+                      <span
+                        className={`font-bold ${
+                          rel === '支持'
+                            ? 'text-emerald-600'
+                            : rel === '反驳'
+                              ? 'text-rose-600'
+                              : 'text-slate-600'
+                        }`}
+                      >
+                        {n}
+                      </span>
+                    </span>
+                  )
+                )}
               </div>
             </div>
 
@@ -973,17 +1185,21 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
               </span>
             </div>
 
+            {!canReview ? (
+              <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
+                终审提交需要「审核员/管理员」角色,当前账号为「{currentUser.roleLabel}」,仅可查看审核记录。
+              </div>
+            ) : (
             <form onSubmit={handleSubmitReview} className="space-y-3.5 text-[12px]">
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  审核员
+                  审核员 <span className="text-slate-400 font-normal">(服务端身份,不可修改)</span>
                 </label>
                 <input
                   type="text"
                   value={reviewerName}
-                  onChange={(e) => setReviewerName(e.target.value)}
-                  required
-                  className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  readOnly
+                  className="w-full px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-600 text-[11.5px] cursor-not-allowed"
                 />
               </div>
 
@@ -1056,6 +1272,42 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                 </div>
               </div>
 
+              {/* 修改结论 (仅 revised) */}
+              {reviewAction === 'revised' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      修正结论
+                    </label>
+                    <select
+                      value={revisedConclusion}
+                      onChange={(e) => setRevisedConclusion(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">保持不变</option>
+                      {['真实', '基本真实', '缺乏语境', '误导', '基本错误', '虚假', '尚待核实', '无法核查', '疑似AI生成', '无法判断'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                      修正置信度
+                    </label>
+                    <select
+                      value={revisedConfidence}
+                      onChange={(e) => setRevisedConfidence(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    >
+                      <option value="">保持不变</option>
+                      {['高', '较高', '中', '低'].map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               {/* Comment Textarea */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
@@ -1078,6 +1330,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                 {submittingReview ? '正在提交审核…' : '提交终审意见并更新案件'}
               </button>
             </form>
+            )}
 
             {/* Historical Audit Trail */}
             <div className="pt-3 border-t border-slate-100 space-y-2">

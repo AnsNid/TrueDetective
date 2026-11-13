@@ -32,6 +32,28 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [imgError, setImgError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [siteStats, setSiteStats] = useState<{
+    totalClues: number;
+    closeRate: number;
+  } | null>(null);
+  const [aiFlags, setAiFlags] = useState<{ llm: boolean; search: boolean } | null>(null);
+
+  // 公开配置:宣传数字与 AI 能力开关(真实值)
+  React.useEffect(() => {
+    api.getConfig().then((res) => {
+      if (res.code === 200 && res.data) {
+        if (res.data.stats) {
+          setSiteStats({
+            totalClues: res.data.stats.totalClues,
+            closeRate: res.data.stats.closeRate,
+          });
+        }
+        if (res.data.ai) {
+          setAiFlags({ llm: res.data.ai.llm, search: res.data.ai.search });
+        }
+      }
+    });
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -122,19 +144,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
           <div className="flex items-center gap-4 text-[12px] text-slate-300/90">
             <span className="flex items-center gap-1.5">
-              <span className="w-4 h-4 rounded-full bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-[#10B981]">
+              <span
+                className={`w-4 h-4 rounded-full flex items-center justify-center ${
+                  aiFlags?.llm
+                    ? 'bg-emerald-500/20 border border-emerald-400/40 text-[#10B981]'
+                    : 'bg-slate-500/20 border border-slate-400/40 text-slate-300'
+                }`}
+              >
                 <Check className="w-2.5 h-2.5 stroke-[3]" />
               </span>
-              <span>Ark LLM 已启用</span>
+              <span>LLM 智能核查{aiFlags?.llm ? '已启用' : '未配置'}</span>
             </span>
             <span aria-hidden="true" className="text-slate-600">
               ·
             </span>
-            <span>Google 联网搜索</span>
+            <span>{aiFlags?.search ? '联网搜索已启用' : '联网搜索未配置'}</span>
             <span aria-hidden="true" className="text-slate-600">
               ·
             </span>
-            <span>反向搜图</span>
+            <span>反向搜图未接入</span>
           </div>
         </div>
 
@@ -155,17 +183,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           {/* Unboxed Proof Metrics Row */}
           <div className="mt-8 pt-6 border-t border-white/15 flex items-center gap-8 text-[13px] text-slate-300 tabular-nums">
             <div>
-              <span className="text-white font-extrabold text-[22px] block leading-tight">
-                1,284
+              <span className="text-white font-extrabold text-[22px] block leading-tight tabular-nums">
+                {(siteStats?.totalClues ?? 0).toLocaleString()}
               </span>
-              <span className="text-[11.5px] text-slate-400">近 30 日累计线索</span>
+              <span className="text-[11.5px] text-slate-400">累计接入线索</span>
             </div>
             <span aria-hidden="true" className="text-white/20 text-lg">
               /
             </span>
             <div>
-              <span className="text-[#10B981] font-extrabold text-[22px] block leading-tight">
-                88.1%
+              <span className="text-[#10B981] font-extrabold text-[22px] block leading-tight tabular-nums">
+                {siteStats ? `${siteStats.closeRate}%` : '—'}
               </span>
               <span className="text-[11.5px] text-slate-400">综合核查结案率</span>
             </div>
@@ -308,26 +336,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
 
-            {/* Role & Remember Me */}
-            <div className="grid grid-cols-2 gap-3 pt-0.5 items-center">
-              <div>
-                <label htmlFor="login-role" className="sr-only">
-                  核查职能组别
-                </label>
-                <select
-                  id="login-role"
-                  aria-label="核查职能组别"
-                  value={roleLabel}
-                  onChange={(e) => setRoleLabel(e.target.value)}
-                  className="w-full h-9 px-3 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[12.5px] text-slate-700 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
-                >
-                  <option value="管理员">角色：终审管理员</option>
-                  <option value="高级核查员">角色：高级核查员</option>
-                  <option value="多语种检索员">角色：检索员</option>
-                </select>
-              </div>
-
-              <label className="flex items-center justify-end gap-2 text-[12.5px] text-slate-600 cursor-pointer select-none">
+            {/* Remember Me (角色由服务端账号决定,登录页不再提供装饰性角色选择) */}
+            <div className="flex justify-end pt-0.5">
+              <label className="flex items-center gap-2 text-[12.5px] text-slate-600 cursor-pointer select-none">
                 <input
                   type="checkbox"
                   checked={rememberMe}

@@ -56,7 +56,8 @@ export const Row2FunnelAndCredibility: React.FC<Row2Props> = ({
               <h2 className="text-[13px] font-bold text-[#0F172A]">九环节漏斗</h2>
             </div>
             <span className="text-[11px] text-slate-400 tabular-nums">
-              总线索 1,284 · 当前：交叉验证
+              总线索 {(funnelSteps[0]?.count ?? 0).toLocaleString()} ·
+              当前：{funnelSteps.find((s) => s.isCurrent)?.label ?? (funnelSteps[0]?.label || '—')}
             </span>
           </div>
 
@@ -108,27 +109,39 @@ export const Row2FunnelAndCredibility: React.FC<Row2Props> = ({
           </div>
         </div>
 
-        {/* Bottom Timing & Target Progress Bar */}
+        {/* Bottom: 首末环节留存(真实漏斗聚合) */}
         <div className="mt-2.5 pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px]">
           <div className="flex items-center flex-wrap gap-x-3.5 gap-y-1">
-            <span className="text-slate-400">环节平均耗时</span>
+            <span className="text-slate-400">环节留存</span>
             <span className="text-slate-600">
-              提单 → 拆解 <strong className="text-[#0F172A] font-bold tabular-nums ml-0.5">1.2h</strong>
+              初筛通过{' '}
+              <strong className="text-[#0F172A] font-bold tabular-nums ml-0.5">
+                {funnelSteps[0]?.count ? Math.round(((funnelSteps[1]?.count ?? 0) / funnelSteps[0].count) * 100) : 0}%
+              </strong>
             </span>
             <span className="text-slate-600">
-              检索 → 验证 <strong className="text-[#0F172A] font-bold tabular-nums ml-0.5">6.5h</strong>
-            </span>
-            <span className="text-slate-600">
-              报告 → 人工 <strong className="text-[#0F172A] font-bold tabular-nums ml-0.5">3.1h</strong>
+              进入人工审核{' '}
+              <strong className="text-[#0F172A] font-bold tabular-nums ml-0.5">
+                {funnelSteps[0]?.count ? Math.round(((funnelSteps[8]?.count ?? 0) / funnelSteps[0].count) * 100) : 0}%
+              </strong>
             </span>
           </div>
 
           <div className="flex items-center gap-2">
             <div className="w-24 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full w-[79%] bg-[#2563EB] rounded-full" />
+              <div
+                className="h-full bg-[#2563EB] rounded-full"
+                style={{
+                  width: `${funnelSteps[0]?.count ? Math.round(((funnelSteps[8]?.count ?? 0) / funnelSteps[0].count) * 100) : 0}%`,
+                }}
+              />
             </div>
             <span className="text-[10.5px] text-slate-400 tabular-nums whitespace-nowrap">
-              目标达成度 79%
+              端到端留存{' '}
+              {funnelSteps[0]?.count
+                ? Math.round(((funnelSteps[8]?.count ?? 0) / funnelSteps[0].count) * 100)
+                : 0}
+              %
             </span>
           </div>
         </div>

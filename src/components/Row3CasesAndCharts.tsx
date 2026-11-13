@@ -11,6 +11,7 @@ interface Row3CasesAndChartsProps {
   onViewAllCases: () => void;
   conclusionDistribution?: typeof CONCLUSION_DISTRIBUTION;
   imageAuthSegments?: typeof IMAGE_AUTH_SEGMENTS;
+  imageClueCount?: number;
 }
 
 export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
@@ -19,8 +20,16 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
   onViewAllCases,
   conclusionDistribution = CONCLUSION_DISTRIBUTION,
   imageAuthSegments = IMAGE_AUTH_SEGMENTS,
+  imageClueCount,
 }) => {
   const maxBarVal = Math.max(...conclusionDistribution.map((d) => d.value), 1);
+  const conclusionTotal = conclusionDistribution.reduce((sum, d) => sum + d.value, 0);
+  const misleadingVal = conclusionDistribution.find((d) => d.label === '误导')?.value ?? 0;
+  const misleadingPct = conclusionTotal ? Math.round((misleadingVal / conclusionTotal) * 100) : 0;
+  const topConclusion = [...conclusionDistribution].sort((a, b) => b.value - a.value)[0];
+  const concludedCount = conclusionDistribution
+    .filter((d) => d.label !== '尚待核实')
+    .reduce((sum, d) => sum + d.value, 0);
 
   // Donut chart geometry driven by backend segments:
   // Green (真实现场图) on right-bottom, Blue (疑似AI生成) on bottom-left, Orange (疑似旧图新用) on top-left
@@ -58,7 +67,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
             <h2 className="text-[13px] font-bold text-[#0F172A]">结论分布</h2>
           </div>
-          <span className="text-[11px] text-slate-400 tabular-nums">14 已定论</span>
+          <span className="text-[11px] text-slate-400 tabular-nums">{concludedCount} 已定论</span>
         </div>
 
         {/* Vertical Bar Chart */}
@@ -102,10 +111,10 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
         {/* Bottom Insight Bar */}
         <div className="mt-1.5 bg-[#F8FAFC] rounded-lg px-3 py-1 flex items-center justify-between gap-2">
           <span className="text-[10.5px] text-slate-400 truncate">
-            误导类占比最高 · 需加强语境补证
+            {topConclusion ? `${topConclusion.label}类占比最高 · 需加强语境补证` : '暂无定论数据'}
           </span>
           <span className="px-2 py-0.5 rounded-full bg-orange-50 text-[#D97706] font-semibold text-[10.5px] whitespace-nowrap tabular-nums">
-            误导 33%
+            误导 {misleadingPct}%
           </span>
         </div>
       </section>
@@ -226,7 +235,9 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
             <h2 className="text-[13px] font-bold text-[#0F172A]">图片真伪判定</h2>
           </div>
-          <span className="text-[11px] text-slate-400 tabular-nums">1,024 张</span>
+          <span className="text-[11px] text-slate-400 tabular-nums">
+            {imageClueCount != null ? `${imageClueCount} 张` : '—'}
+          </span>
         </div>
 
         {/* Center Donut Chart */}
@@ -273,7 +284,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
             <span className="text-[15px] font-extrabold text-[#0F172A] tabular-nums leading-tight">
-              1,024
+              {imageClueCount ?? '—'}
             </span>
             <span className="text-[10px] text-slate-400 mt-0.5">张图片</span>
           </div>

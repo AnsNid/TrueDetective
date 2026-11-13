@@ -143,7 +143,7 @@ export const StatisticsView: React.FC = () => {
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          数据同步 09:41 · 口径: 全工作室 &nbsp;&nbsp;共 {totalCases} 个案件 / {totalEvidence} 条证据
+          数据同步 {new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })} · 口径: 全工作室 &nbsp;&nbsp;共 {totalCases} 个案件 / {totalEvidence} 条证据
         </div>
       </div>
 

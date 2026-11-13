@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   FileText,
   Image,
@@ -37,7 +37,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
     'https://www.hrw.org/world-report/2026/country-chapters/china'
   );
   const [priority, setPriority] = useState('高 (涉人权组织指控)');
-  const [assignee, setAssignee] = useState('王思思 · 当前 3 件在办');
+  const [assignee, setAssignee] = useState('');
   const [relatedCase, setRelatedCase] = useState('未关联');
   const [isDraftSaved, setIsDraftSaved] = useState(false);
   const [submittedToast, setSubmittedToast] = useState(false);
@@ -45,26 +45,101 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
   const [ocrDetected, setOcrDetected] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [translateError, setTranslateError] = useState<string | null>(null);
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null);
+  const [members, setMembers] = useState<{ name: string; role: string; load: number }[]>([]);
+  const [recentCases, setRecentCases] = useState<{ id: string; title: string }[]>([]);
+  const [recentClues, setRecentClues] = useState<
+    { clueNo: string; title: string; submittedBy: string }[]
+  >([]);
+  const [submitterLabel, setSubmitterLabel] = useState('当前登录账号');
 
-  const handleTranslateLLM = () => {
-    if (!content.trim()) return;
+  const DRAFT_KEY = 'detective-clue-draft';
+
+  // 草稿:本地暂存(标题/内容/译文等),提交成功后清除
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw);
+        if (draft.title) setTitle(draft.title);
+        if (draft.content) setContent(draft.content);
+        if (draft.translation) setTranslation(draft.translation);
+        if (draft.platform) setPlatform(draft.platform);
+        if (draft.account) setAccount(draft.account);
+        if (draft.sourceUrl) setSourceUrl(draft.sourceUrl);
+        if (draft.priority) setPriority(draft.priority);
+        if (draft.savedAt) setDraftSavedAt(draft.savedAt);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 负责人候选:取后端成员与实时负载;同时取提交人身份与最近案件(关联候选)
+  useEffect(() => {
+    api.users().then((res) => {
+      if (res.code === 200 && res.data?.list) {
+        const list = res.data.list.map((m: any) => ({ name: m.name, role: m.role, load: m.load ?? 0 }));
+        setMembers(list);
+        // 默认指派给在办最少的核查员
+        const verifiers = list.filter((m) => m.role === '核查员').sort((a, b) => a.load - b.load);
+        const pick = verifiers[0] ?? list[0];
+        if (pick) setAssignee(`${pick.name} · 当前 ${pick.load} 件在办`);
+      }
+    });
+    api.getUserInfo().then((res) => {
+      if (res.code === 200 && res.data) {
+        setSubmitterLabel(`${res.data.nickname || res.data.username} (${res.data.roleLabel || '核查员'})`);
+      }
+    });
+    api.tasks({ pageSize: 10 }).then((res) => {
+      if (res.code === 200 && res.data?.list) {
+        setRecentCases(res.data.list.slice(0, 8).map((t) => ({ id: t.id, title: t.title })));
+      }
+    });
+    api.clues(3).then((res) => {
+      if (res.code === 200 && res.data?.list) {
+        setRecentClues(
+          res.data.list.map((c: any) => ({
+            clueNo: c.clueNo,
+            title: c.title,
+            submittedBy: c.submittedBy,
+          }))
+        );
+      }
+    });
+  }, []);
+
+  const handleTranslateLLM = async () => {
+    if (!content.trim() || isTranslating) return;
     setIsTranslating(true);
-    setTimeout(() => {
-      setTranslation(
-        '人权观察在年度报告中称，中国已将边境管控变成“常规治理工具”，并将边境形容为“数百万人的监狱”。报告未援引一手官方文件支持该定性。'
-      );
+    setTranslateError(null);
+    try {
+      const res = await api.translate(content.trim());
+      if (res.code === 200 && res.data?.text) {
+        setTranslation(res.data.text);
+      } else {
+        setTranslateError(res.message || '翻译不可用(LLM 未配置或调用失败)');
+      }
+    } finally {
       setIsTranslating(false);
-    }, 600);
+    }
   };
 
   const handlePasteContent = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
     const items = e.clipboardData.items;
     for (let i = 0; i < items.length; i++) {
       if (items[i].type.indexOf('image') !== -1) {
-        setOcrDetected(true);
-        setClueType('image');
-        setImageUrl('https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=800');
-        setTimeout(() => setOcrDetected(false), 3000);
+        // 图片粘贴:提取真实图片并转为 objectURL 供预览(上传服务未接入,提交时以图片说明为准)
+        const file = items[i].getAsFile();
+        if (file) {
+          setOcrDetected(true);
+          setClueType('image');
+          setImageUrl(URL.createObjectURL(file));
+          setTimeout(() => setOcrDetected(false), 3000);
+        }
       }
     }
   };
@@ -81,15 +156,18 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
         content: content.trim(),
         translation: translation.trim(),
         clueType,
-        imageUrl: imageUrl.trim(),
+        imageUrl: imageUrl.trim().startsWith('blob:') ? '' : imageUrl.trim(),
         platform: platform.trim(),
         account: account.trim(),
         publishTime: publishTime.trim(),
         sourceUrl: sourceUrl.trim(),
         priority,
         assignee,
+        relatedCase,
       });
       if (res.code === 200 && res.data?.caseNo) {
+        localStorage.removeItem(DRAFT_KEY);
+        setDraftSavedAt(null);
         if (onSuccessSubmit) {
           onSuccessSubmit(res.data.caseNo, title.trim());
         }
@@ -104,6 +182,12 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
   };
 
   const handleSaveDraft = () => {
+    const savedAt = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    localStorage.setItem(
+      DRAFT_KEY,
+      JSON.stringify({ title, content, translation, platform, account, sourceUrl, priority, savedAt })
+    );
+    setDraftSavedAt(savedAt);
     setIsDraftSaved(true);
     setTimeout(() => setIsDraftSaved(false), 2500);
   };
@@ -156,7 +240,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          <span>草稿已自动保存 · 09:41</span>
+          <span>{draftSavedAt ? `草稿保存于 ${draftSavedAt} · 本地暂存` : '草稿未保存'}</span>
           <span className="ml-2 text-slate-500">提交后由价值初筛环节自动分级</span>
         </div>
       </div>
@@ -332,9 +416,12 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
                     disabled={isTranslating}
                     className="text-[10.5px] text-[#2563EB] hover:text-blue-800 font-semibold cursor-pointer underline flex items-center gap-1"
                   >
-                    {isTranslating ? '正在翻译...' : '调用 LLM 翻译成中文'}
+                    {isTranslating ? '正在翻译(LLM 调用中,约 10 秒)…' : '调用 LLM 翻译成中文'}
                   </button>
                 </div>
+                {translateError && (
+                  <div className="text-[10.5px] text-amber-600">⚠ {translateError}</div>
+                )}
                 <input
                   type="text"
                   value={translation}
@@ -409,11 +496,11 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  提交人
+                  提交人 <span className="text-slate-400 font-normal">(服务端身份)</span>
                 </label>
                 <input
                   type="text"
-                  value="张明 (管理员)"
+                  value={submitterLabel}
                   disabled
                   className="w-full px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 text-[11.5px] cursor-not-allowed"
                 />
@@ -423,14 +510,47 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
             {/* Drag & Drop Upload */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                上传图片 / 截图 <span className="text-slate-400 font-normal">(用于图片溯源，支持拖拽)</span>
+                上传图片 / 截图{' '}
+                <span className="text-slate-400 font-normal">
+                  (用于图片溯源;文件服务未接入,当前仅本地预览,提交以图片地址/说明为准)
+                </span>
               </label>
-              <div className="border border-dashed border-slate-300 rounded-lg p-5 text-center bg-slate-50/50 hover:bg-slate-50 cursor-pointer transition-colors">
+              <label
+                className="block border border-dashed border-slate-300 rounded-lg p-5 text-center bg-slate-50/50 hover:bg-slate-50 cursor-pointer transition-colors"
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const file = e.dataTransfer.files?.[0];
+                  if (file && file.type.startsWith('image/')) {
+                    setClueType('image');
+                    setImageUrl(URL.createObjectURL(file));
+                  }
+                }}
+              >
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setClueType('image');
+                      setImageUrl(URL.createObjectURL(file));
+                    }
+                  }}
+                />
                 <div className="text-[11.5px] text-slate-500 flex items-center justify-center gap-1.5">
                   <Upload className="w-3.5 h-3.5 text-slate-400" />
-                  + 拖拽图片到此处，或直接在上方原文框按 Ctrl+V 粘贴截图
+                  + 拖拽图片到此处、点击选择文件，或直接在上方原文框按 Ctrl+V 粘贴截图
                 </div>
-              </div>
+                {imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt="待上传截图预览"
+                    className="max-h-40 mx-auto mt-2.5 rounded border border-slate-200 object-contain"
+                  />
+                )}
+              </label>
             </div>
 
             {/* Priority, Assignee, Related Case */}
@@ -451,18 +571,19 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  指派核查员
+                  指派核查员 <span className="text-slate-400 font-normal">附实时在办负载</span>
                 </label>
                 <select
                   value={assignee}
                   onChange={(e) => setAssignee(e.target.value)}
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
                 >
-                  <option value="王思思 · 当前 3 件在办">王思思 · 当前 3 件在办</option>
-                  <option value="李华 · 当前 2 件在办">李华 · 当前 2 件在办</option>
-                  <option value="王芳 · 当前 2 件在办">王芳 · 当前 2 件在办</option>
-                  <option value="赵强 · 当前 1 件在办">赵强 · 当前 1 件在办</option>
-                  <option value="刘洋 · 当前 1 件在办">刘洋 · 当前 1 件在办</option>
+                  {members.length === 0 && <option value="">(加载中…)</option>}
+                  {members.map((m) => (
+                    <option key={m.name} value={`${m.name} · 当前 ${m.load} 件在办`}>
+                      {m.name}({m.role}) · 当前 {m.load} 件在办
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -475,8 +596,11 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
                 >
                   <option value="未关联">未关联</option>
-                  <option value="ZT-2026-0001 · 出入境新规">ZT-2026-0001 · 出入境新规</option>
-                  <option value="ZT-2026-0016 · 边境管控">ZT-2026-0016 · 边境管控</option>
+                  {recentCases.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.id} · {c.title.slice(0, 14)}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
@@ -525,40 +649,31 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
               </div>
             </div>
 
-            {/* Similar clues and reusable cases */}
+            {/* Recent similar clues (来自最近提交的真实线索) */}
             <div className="border-t border-slate-100 pt-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-bold text-slate-700">相似线索与可复用案例</span>
-                <span className="text-[10px] text-slate-400">按主张文本 + 信源自动匹配</span>
+                <span className="text-[11px] font-bold text-slate-700">最近提交的线索</span>
+                <span className="text-[10px] text-slate-400">可对照避免重复提交</span>
               </div>
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100/70 rounded text-[11px] transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 tabular-nums">ZT-2026-0001</span>
-                    <span className="text-slate-700 font-medium">出入境新规与人权组织指控</span>
-                  </div>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200">
-                    误导
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100/70 rounded text-[11px] transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 tabular-nums">ZT-2026-0016</span>
-                    <span className="text-slate-700 font-medium">边境管控“系统性限制”</span>
-                  </div>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                    无法核查
-                  </span>
-                </div>
-                <div className="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100/70 rounded text-[11px] transition-colors">
-                  <div className="flex items-center gap-2">
-                    <span className="text-blue-600 font-medium">知识库</span>
-                    <span className="text-slate-700 font-medium">指控表述核查主线 (引用 96 次)</span>
-                  </div>
-                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-                    可直接引用
-                  </span>
-                </div>
+                {recentClues.length === 0 ? (
+                  <div className="text-[11px] text-slate-400 py-1.5">暂无最近线索记录</div>
+                ) : (
+                  recentClues.map((c) => (
+                    <div
+                      key={c.clueNo}
+                      className="flex items-center justify-between p-2 bg-slate-50 hover:bg-slate-100/70 rounded text-[11px] transition-colors"
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-slate-400 tabular-nums shrink-0">{c.clueNo}</span>
+                        <span className="text-slate-700 font-medium truncate">{c.title}</span>
+                      </div>
+                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-600 border border-slate-200 shrink-0 ml-2">
+                        {c.submittedBy}
+                      </span>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
 

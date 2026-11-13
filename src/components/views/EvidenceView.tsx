@@ -14,6 +14,7 @@ import {
   Check,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import type { EvidenceSummary } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 interface EvidenceViewProps {
@@ -26,15 +27,39 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
   const [searchKey, setSearchKey] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
 
-  // 后端证据库
-  const evidenceQuery = useApiData<{ list: EvidenceItem[] }>(() => api.evidence());
+  // 后端证据库(列表 + 服务端汇总)
+  const evidenceQuery = useApiData<{ list: EvidenceItem[]; summary: EvidenceSummary }>(() => api.evidence());
   const allEvidence = evidenceQuery.data?.list ?? [];
+  const summary = evidenceQuery.data?.summary;
 
   // 统计卡片(由后端数据计算)
   const evidenceTotal = allEvidence.length;
-  const evidenceCaseCount = new Set(allEvidence.map((e) => e.caseId)).size;
+  const evidenceCaseCount = summary?.caseCount ?? new Set(allEvidence.map((e) => e.caseId)).size;
   const relationCount = (rel: string) => allEvidence.filter((e) => e.relation === rel).length;
   const relationPct = (rel: string) => (evidenceTotal ? Math.round((relationCount(rel) / evidenceTotal) * 100) : 0);
+
+  // 争议对比:取最有代表性的支持 vs 反驳/待确认证据
+  const supportPick = allEvidence.find((e) => e.relation === '支持' && e.credibility === '高')
+    ?? allEvidence.find((e) => e.relation === '支持');
+  const disputePick = allEvidence.find((e) => e.relation === '待确认')
+    ?? allEvidence.find((e) => e.relation === '反驳');
+
+  // 每案证据构成(完整性 = 已定性证据占比)
+  const caseStats = Object.entries(
+    allEvidence.reduce<Record<string, { total: number; settled: number }>>((acc, e) => {
+      const s = (acc[e.caseId] ??= { total: 0, settled: 0 });
+      s.total++;
+      if (e.relation === '支持' || e.relation === '反驳') s.settled++;
+      return acc;
+    }, {})
+  )
+    .map(([caseId, s]) => ({
+      caseId,
+      pct: s.total ? Math.round((s.settled / s.total) * 100) : 0,
+      total: s.total,
+    }))
+    .sort((a, b) => a.pct - b.pct)
+    .slice(0, 3);
 
   const filteredEvidence = useMemo(() => {
     return allEvidence.filter((item) => {
@@ -54,6 +79,20 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
   }, [allEvidence, relationFilter, sourceTypeFilter, searchKey]);
 
   const handleExport = () => {
+    const header = ['案件编号', '证据名称', '来源机构', '信源类型', '发布日期', '关系', '可信度'];
+    const rows = filteredEvidence.map((e) => [
+      e.caseId, e.name, e.sourceOrg, e.sourceType, e.date, e.relation, e.credibility,
+    ]);
+    const csv = [header, ...rows]
+      .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `真探证据表_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
     setCopiedToast(true);
     setTimeout(() => setCopiedToast(false), 2500);
   };
@@ -255,15 +294,23 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {evidenceQuery.error && !evidenceQuery.loading ? (
-                    <div className="px-3 py-2">
-                      <LoadErrorBar message={evidenceQuery.error} onRetry={evidenceQuery.reload} />
-                    </div>
+                    <tr>
+                      <td colSpan={7} className="px-3 py-2">
+                        <LoadErrorBar message={evidenceQuery.error} onRetry={evidenceQuery.reload} />
+                      </td>
+                    </tr>
                   ) : evidenceQuery.loading ? (
-                    <LoadingCards rows={3} />
+                    <tr>
+                      <td colSpan={7} className="px-3 py-2">
+                        <LoadingCards rows={3} />
+                      </td>
+                    </tr>
                   ) : filteredEvidence.length === 0 ? (
-                    <div className="px-3 py-8 text-center text-[12px] text-slate-400">
-                      暂无符合条件的证据材料
-                    </div>
+                    <tr>
+                      <td colSpan={7} className="px-3 py-8 text-center text-[12px] text-slate-400">
+                        暂无符合条件的证据材料
+                      </td>
+                    </tr>
                   ) : filteredEvidence.map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 pl-4 pr-2 font-mono tabular-nums text-slate-600 whitespace-nowrap text-[11px]">
@@ -319,112 +366,111 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
                 >
                   导出证据表
                 </button>
-                <button
-                  onClick={handleExport}
-                  className="px-2.5 py-1 rounded bg-blue-50 hover:bg-blue-100 text-blue-600 font-medium transition-colors cursor-pointer"
-                >
-                  生成证据链图
-                </button>
+                {/* 证据链图生成暂未开放(需图形渲染服务),仅保留 CSV 导出 */}
               </div>
             </div>
           </div>
 
-          {/* Card: 争议证据对比 */}
+          {/* Card: 争议证据对比(真实数据: 最强支持 vs 待确认/反驳) */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-1.5 font-bold text-[12.5px] text-[#0F172A]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 争议证据对比
               </div>
-              <span className="text-[10px] text-slate-400">同一主张 · 支持与反驳并列</span>
+              <span className="text-[10px] text-slate-400">支持与待确认/反驳并列</span>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11.5px]">
               {/* Support Card */}
-              <div className="bg-emerald-50/40 border border-emerald-200/80 rounded-lg p-3 space-y-1.5">
+              <button
+                type="button"
+                onClick={() => supportPick && onSelectCase?.(supportPick.caseId)}
+                className="text-left bg-emerald-50/40 border border-emerald-200/80 rounded-lg p-3 space-y-1.5 hover:border-emerald-400 transition-colors cursor-pointer"
+              >
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-emerald-800 text-[11px]">支持</span>
                   <span className="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">
-                    高可信
+                    {supportPick?.credibility ?? '—'} 可信
                   </span>
                 </div>
-                <div className="font-bold text-slate-800">
-                  国家移民管理局: 出入境新规政策解读
+                <div className="font-bold text-slate-800 line-clamp-1">
+                  {supportPick?.name ?? '暂无支持证据'}
                 </div>
                 <p className="text-[10.5px] text-slate-600 leading-relaxed">
-                  官方文件仅支持“新规已发布”这一事实层面结论，未涉及“边境成为监狱”的定性。
+                  {supportPick ? `${supportPick.sourceOrg} · ${supportPick.date || '未注明日期'} · ${supportPick.caseId}` : '完成环节 6 交叉验证后自动汇入。'}
                 </p>
-              </div>
+              </button>
 
               {/* Pending / Dispute Card */}
-              <div className="bg-amber-50/40 border border-amber-200/80 rounded-lg p-3 space-y-1.5">
+              <button
+                type="button"
+                onClick={() => disputePick && onSelectCase?.(disputePick.caseId)}
+                className="text-left bg-amber-50/40 border border-amber-200/80 rounded-lg p-3 space-y-1.5 hover:border-amber-400 transition-colors cursor-pointer"
+              >
                 <div className="flex items-center justify-between">
-                  <span className="font-bold text-amber-800 text-[11px]">待确认</span>
+                  <span className="font-bold text-amber-800 text-[11px]">{disputePick?.relation ?? '待确认'}</span>
                   <span className="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-semibold text-[10px]">
-                    未提供一手材料
+                    {disputePick?.sourceType ?? '—'}
                   </span>
                 </div>
-                <div className="font-bold text-slate-800">
-                  人权观察 (HRW) 年度报告: 边境管控章节
+                <div className="font-bold text-slate-800 line-clamp-1">
+                  {disputePick?.name ?? '暂无争议证据'}
                 </div>
                 <p className="text-[10.5px] text-slate-600 leading-relaxed">
-                  “监狱”“常态化治理工具”为定性表述，未附一手材料，需补充独立佐证后再定论。
+                  {disputePick ? `${disputePick.sourceOrg} · ${disputePick.date || '未注明日期'} · ${disputePick.caseId}` : '检索反驳证据后自动汇入。'}
                 </p>
-              </div>
+              </button>
             </div>
           </div>
         </div>
 
         {/* Right 4 Cols */}
         <div className="lg:col-span-4 space-y-3.5">
-          {/* Card 1: 证据链完整性 */}
+          {/* Card 1: 证据链构成(真实: 每案已定性证据占比) */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-1.5 font-bold text-[12.5px] text-[#0F172A]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
-                证据链完整性
+                证据链构成(最低在前)
               </div>
-              <span className="text-[10px] text-slate-400">3 个案件</span>
+              <span className="text-[10px] text-slate-400">{caseStats.length} 个案件</span>
             </div>
 
             <div className="space-y-3 text-[11px]">
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span className="font-medium">ZT-2026-0001 · 出入境新规</span>
-                  <span className="font-bold tabular-nums text-emerald-600">92%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: '92%' }}></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span className="font-medium">ZT-2026-0002 · 战机拦截</span>
-                  <span className="font-bold tabular-nums text-blue-600">78%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full" style={{ width: '78%' }}></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span className="font-medium">ZT-2026-0003 · 涉疆报道</span>
-                  <span className="font-bold tabular-nums text-amber-600">64%</span>
-                </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-amber-500 h-full rounded-full" style={{ width: '64%' }}></div>
-                </div>
-              </div>
+              {caseStats.length === 0 ? (
+                <div className="text-slate-400 py-2 text-center">暂无证据数据</div>
+              ) : (
+                caseStats.map((cs) => (
+                  <div key={cs.caseId}>
+                    <div className="flex items-center justify-between text-slate-700 mb-1">
+                      <button
+                        onClick={() => onSelectCase?.(cs.caseId)}
+                        className="font-medium hover:text-blue-600 cursor-pointer font-mono"
+                      >
+                        {cs.caseId}
+                      </button>
+                      <span className={`font-bold tabular-nums ${cs.pct >= 70 ? 'text-emerald-600' : 'text-amber-600'}`}>
+                        {cs.pct}%
+                      </span>
+                    </div>
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${cs.pct >= 70 ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                        style={{ width: `${cs.pct}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
 
             <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-100 leading-relaxed">
-              完整性低于 70% 的案件不得进入报告生成，需补充一手材料。
+              构成比 = (支持+反驳)/该案证据总数;低于 70% 的案件按规范不得进入报告生成。
             </p>
           </div>
 
-          {/* Card 2: 信源等级分布 */}
+          {/* Card 2: 信源等级分布(服务端汇总) */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-1.5 font-bold text-[12.5px] text-[#0F172A]">
@@ -435,73 +481,53 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
             </div>
 
             <div className="space-y-2.5 text-[11px]">
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span>高可信</span>
-                  <span className="font-bold tabular-nums text-slate-800">6</span>
+              {[
+                { label: '高可信', count: summary?.credibility?.['高'] ?? 0, color: 'bg-emerald-500', text: 'text-emerald-600' },
+                { label: '较高 / 中可信', count: (summary?.credibility?.['较高'] ?? 0) + (summary?.credibility?.['中'] ?? 0), color: 'bg-blue-600', text: 'text-blue-600' },
+                { label: '低可信', count: summary?.credibility?.['低'] ?? 0, color: 'bg-amber-500', text: 'text-amber-600' },
+              ].map((row) => (
+                <div key={row.label}>
+                  <div className="flex items-center justify-between text-slate-700 mb-1">
+                    <span>{row.label}</span>
+                    <span className={`font-bold tabular-nums ${row.text}`}>{row.count}</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className={`${row.color} h-full rounded-full`}
+                      style={{ width: `${evidenceTotal ? Math.round((row.count / evidenceTotal) * 100) : 0}%` }}
+                    ></div>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-emerald-500 h-full rounded-full" style={{ width: '60%' }}></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span>较高 / 中可信</span>
-                  <span className="font-bold tabular-nums text-slate-800">4</span>
-                </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full" style={{ width: '40%' }}></div>
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between text-slate-700 mb-1">
-                  <span>低可信</span>
-                  <span className="font-bold tabular-nums text-slate-800">2</span>
-                </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-amber-500 h-full rounded-full" style={{ width: '20%' }}></div>
-                </div>
-              </div>
+              ))}
             </div>
           </div>
 
-          {/* Card 3: 信源六维评分 */}
+          {/* Card 3: 信源类型分布(服务端汇总) */}
           <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2">
               <div className="flex items-center gap-1.5 font-bold text-[12.5px] text-[#0F172A]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
-                信源六维评分
+                信源类型分布
               </div>
-              <span className="text-[10px] text-slate-400">均值</span>
+              <span className="text-[10px] text-slate-400">按证据条目</span>
             </div>
 
             <div className="space-y-2 text-[11px]">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">接近事件程度</span>
-                <span className="font-bold tabular-nums text-slate-800">4.6</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">专业性</span>
-                <span className="font-bold tabular-nums text-slate-800">4.2</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">涉华表述准确性</span>
-                <span className="font-bold tabular-nums text-rose-600">2.8</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">立场倾向</span>
-                <span className="font-bold tabular-nums text-slate-800">3.1</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">透明度</span>
-                <span className="font-bold tabular-nums text-slate-800">3.7</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-600">时效性</span>
-                <span className="font-bold tabular-nums text-slate-800">4.4</span>
-              </div>
+              {Object.keys(summary?.sourceTypes ?? {}).length === 0 ? (
+                <div className="text-slate-400 py-2 text-center">暂无数据</div>
+              ) : (
+                Object.entries(summary?.sourceTypes ?? {}).map(([type, count]) => (
+                  <div key={type} className="flex items-center justify-between">
+                    <span className="text-slate-600">{type}</span>
+                    <span className="font-bold tabular-nums text-slate-800">
+                      {count}
+                      <span className="text-slate-400 font-normal ml-1">
+                        {evidenceTotal ? Math.round((count / evidenceTotal) * 100) : 0}%
+                      </span>
+                    </span>
+                  </div>
+                ))
+              )}
             </div>
 
             <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-100 leading-relaxed">

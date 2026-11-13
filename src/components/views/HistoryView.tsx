@@ -1,8 +1,5 @@
 import React, { useState } from 'react';
 import {
-  HistoryCase,
-} from '../../data/viewsData';
-import {
   Clock,
   BookOpen,
   CheckCircle2,
@@ -10,25 +7,55 @@ import {
   FileCheck,
   ChevronRight,
   ExternalLink,
+  Layers,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import type { HistoryItemApi } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
 
 interface HistoryViewProps {
   onSelectCaseDetail?: (caseId: string) => void;
+  currentUserRole?: string;
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   onSelectCaseDetail,
+  currentUserRole = '管理员',
 }) => {
-  const [selectedCaseModal, setSelectedCaseModal] = useState<HistoryCase | null>(null);
+  const [selectedCaseModal, setSelectedCaseModal] = useState<HistoryItemApi | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [depositingId, setDepositingId] = useState<string | null>(null);
+
+  const canDeposit = currentUserRole === '管理员' || currentUserRole === '审核员';
 
   // 后端已结案案例
-  const historyQuery = useApiData<{ list: HistoryCase[] }>(() => api.history());
+  const historyQuery = useApiData<{ list: HistoryItemApi[] }>(() => api.history());
   const historyCases = historyQuery.data?.list ?? [];
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleDeposit = async (caseNo: string) => {
+    setDepositingId(caseNo);
+    try {
+      const res = await api.depositCase(caseNo);
+      showToast(res.code === 200 ? `案件 ${caseNo} 已沉淀为教学案例` : res.message || '沉淀失败');
+      if (res.code === 200) {
+        historyQuery.reload();
+      }
+    } finally {
+      setDepositingId(null);
+    }
+  };
 
   // 统计卡片(由后端数据计算)
   const closedCount = historyCases.length;
+  const depositedCount = historyCases.filter((c) => c.deposited).length;
+  const depositRate = closedCount ? Math.round((depositedCount / closedCount) * 100) : 0;
+  const durations = historyCases.filter((c) => c.durationDays).map((c) => c.durationDays as number);
+  const avgDuration = durations.length ? (durations.reduce((a, b) => a + b, 0) / durations.length).toFixed(1) : '—';
   const misleadingLikeCount = historyCases.filter((c) => c.conclusion === '误导' || c.conclusion === '虚假').length;
   const misleadingPct = closedCount ? Math.round((misleadingLikeCount / closedCount) * 100) : 0;
 
@@ -106,9 +133,19 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          本月结案 {closedCount} 个 · 沉淀率 100% · 教学案例库已同步更新
+          本月结案 {closedCount} 个 · 沉淀率 {depositRate}% · 教学案例库已同步更新
         </div>
       </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className="p-3 bg-blue-50 border border-blue-200 text-blue-700 text-xs rounded-lg flex items-center justify-between shadow-sm">
+          <span>✓ {toast}</span>
+          <button onClick={() => setToast(null)} className="text-blue-800 font-semibold underline cursor-pointer">
+            知道了
+          </button>
+        </div>
+      )}
 
       {/* 4 Metric Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -128,11 +165,11 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">已沉淀为教学案例</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{closedCount}</span>
-            <span className="text-[10px] text-slate-400">全部进入知识库「典型案例」</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{depositedCount}</span>
+            <span className="text-[10px] text-slate-400">沉淀率 {depositRate}%</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '100%' }}></div>
+            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: `${depositRate}%` }}></div>
           </div>
         </div>
 
@@ -140,13 +177,14 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">平均结案时长</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">2.1<span className="text-sm font-normal text-slate-500">天</span></span>
-            <span className="text-[10px] text-emerald-600 font-medium bg-emerald-50 px-1 py-0.2 rounded">
-              较上季 -0.4天
+            <span className="text-2xl font-extrabold text-slate-900 tabular-nums">
+              {avgDuration}
+              <span className="text-sm font-normal text-slate-500">天</span>
             </span>
+            <span className="text-[10px] text-slate-400">{durations.length} 个案件有记录</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-blue-600 h-full rounded-full" style={{ width: '60%' }}></div>
+            <div className="bg-blue-600 h-full rounded-full" style={{ width: `${Math.min(100, (parseFloat(avgDuration) || 0) * 12)}%` }}></div>
           </div>
         </div>
 
@@ -205,7 +243,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 </div>
 
                 <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-50 text-slate-400">
-                  <span>负责人 —— · 结案 {c.closedDate}</span>
+                  <span>负责人 {c.assignee} · 结案 {c.closedDate}{c.durationDays ? ` · 用时 ${c.durationDays} 天` : ''}</span>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => onSelectCaseDetail && onSelectCaseDetail(c.id)}
@@ -214,12 +252,21 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       查看报告
                     </button>
                     <span>·</span>
-                    <button
-                      onClick={() => {}}
-                      className="text-slate-400 hover:text-slate-700 cursor-pointer"
-                    >
-                      沉淀
-                    </button>
+                    {c.deposited ? (
+                      <span className="text-emerald-600 font-medium flex items-center gap-0.5">
+                        <Layers className="w-3 h-3" /> 已沉淀
+                      </span>
+                    ) : canDeposit ? (
+                      <button
+                        onClick={() => handleDeposit(c.id)}
+                        disabled={depositingId === c.id}
+                        className="text-slate-400 hover:text-emerald-600 disabled:opacity-50 cursor-pointer font-medium"
+                      >
+                        {depositingId === c.id ? '沉淀中…' : '沉淀'}
+                      </button>
+                    ) : (
+                      <span className="text-slate-300">沉淀</span>
+                    )}
                   </div>
                 </div>
               </div>

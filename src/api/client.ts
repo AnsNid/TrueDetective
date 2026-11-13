@@ -22,7 +22,6 @@ export const TOKEN_KEY = 'x-token';
 
 export function getSavedToken(): string {
   if (typeof window === 'undefined') return '';
-  // 1. URL query/hash 透传 token
   try {
     const fromQuery = new URLSearchParams(window.location.search).get(TOKEN_KEY);
     const fromHashQuery = window.location.hash.includes('?')
@@ -36,7 +35,6 @@ export function getSavedToken(): string {
   } catch {
     // ignore parse errors
   }
-  // 2. 本地存储 / 会话存储 / Cookie
   return (
     localStorage.getItem(TOKEN_KEY) ||
     sessionStorage.getItem(TOKEN_KEY) ||
@@ -77,7 +75,6 @@ export async function apiRequest<T = any>(
     const response = await fetch(`${BASE_URI}${endpoint}`, { ...options, headers });
     const json = (await response.json().catch(() => null)) as ApiEnvelope<T> | null;
 
-    // HTTP 层 401:凭证失效,清理本地登录态
     if (response.status === 401) {
       clearSavedToken();
       return {
@@ -117,6 +114,16 @@ export interface BackendUser {
   permissions?: string[];
 }
 
+export interface SiteConfig {
+  site_name: string;
+  site_slogan: string;
+  stats?: { totalClues: number; totalCases: number; closedCases: number; closeRate: number };
+  ai?: { llm: boolean; search: boolean; reverseImage: boolean; githubBed: boolean };
+  stages?: { num: number; name: string }[];
+}
+
+export type StageMethod = 'llm' | 'search' | 'rule' | 'template' | 'skip' | 'unavailable' | 'pending' | 'review';
+
 export interface DashboardPayload {
   metrics: import('../data/dashboardData').TimeRangeMetrics;
   funnelSteps: import('../data/dashboardData').FunnelStep[];
@@ -124,10 +131,43 @@ export interface DashboardPayload {
   credibilityTiers: { label: string; percentage: number; color: string }[];
   conclusionDistribution: { label: string; value: number; color: string }[];
   imageAuthSegments: { label: string; percentage: number; color: string }[];
+  imageClueCount: number;
   weeklyTrends: { labels: string[]; clues: number[]; closed: number[] };
   heatmap: { days: string[]; matrix: number[][] };
+  reviewChecklist: string[];
+  ai: { llm: boolean; search: boolean };
   pendingReviews: import('../data/dashboardData').PendingReviewItem[];
+  pendingCount: number;
   ongoingCases: import('../data/dashboardData').OngoingCaseItem[];
+}
+
+export interface TaskItemApi {
+  id: string;
+  title: string;
+  stageProgress: string;
+  stageProgressNum: number;
+  priority: '高' | '中' | '低';
+  assignee: string;
+  assigneeInitial: string;
+  conclusion: string;
+  status: '报告生成' | '已结案' | '进行中';
+  createdAt: string;
+}
+
+export interface TasksPayload {
+  list: TaskItemApi[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+}
+
+export interface EvidenceSummary {
+  total: number;
+  caseCount: number;
+  relations: Record<string, number>;
+  sourceTypes: Record<string, number>;
+  credibility: Record<string, number>;
 }
 
 export interface StatisticsPayload {
@@ -156,10 +196,51 @@ export interface StatisticsPayload {
   contentTypeBreakdown: { text: number; image: number; videoAudio: number };
 }
 
+export interface HistoryItemApi {
+  id: string;
+  conclusion: string;
+  title: string;
+  summary: string;
+  evidenceCount: number;
+  reviewRounds: number;
+  confidence: string;
+  closedDate: string;
+  assignee: string;
+  durationDays: number | null;
+  deposited: boolean;
+}
+
+export interface KnowledgeItemApi {
+  id: number;
+  category: string;
+  title: string;
+  citations: number;
+  content: string;
+  keyRule: string;
+  updatedDate: string;
+  caseNo: string;
+}
+
+export interface MemberItemApi {
+  id: number;
+  uid: number;
+  name: string;
+  title: string;
+  handle: string;
+  role: '管理员' | '审核员' | '核查员';
+  department: string;
+  email: string;
+  status: '启用' | '停用';
+  lastActive: string;
+  avatarChar: string;
+  load?: number;
+  hasAccount?: boolean;
+}
+
 /* ============ 接口列表 ============ */
 
 export const api = {
-  getConfig: () => apiRequest('/getConfig'),
+  getConfig: () => apiRequest<SiteConfig>('/getConfig'),
 
   login: (username: string, password: string) =>
     apiRequest<{ token: string; user: BackendUser }>('/login', {
@@ -174,7 +255,15 @@ export const api = {
 
   statistics: () => apiRequest<StatisticsPayload>('/statistics'),
 
-  tasks: () => apiRequest<{ list: any[]; total: number }>('/tasks'),
+  tasks: (params?: { tab?: string; keyword?: string; page?: number; pageSize?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.tab && params.tab !== 'all') q.set('tab', params.tab);
+    if (params?.keyword) q.set('keyword', params.keyword);
+    if (params?.page) q.set('page', String(params.page));
+    if (params?.pageSize) q.set('pageSize', String(params.pageSize));
+    const qs = q.toString();
+    return apiRequest<TasksPayload>(`/tasks${qs ? `?${qs}` : ''}`);
+  },
 
   createClue: (payload: Record<string, any>) =>
     apiRequest<{ caseNo: string; clueNo: string; title: string; stage: number; stageName: string }>(
@@ -182,10 +271,18 @@ export const api = {
       { method: 'POST', body: JSON.stringify(payload) }
     ),
 
+  translate: (text: string) =>
+    apiRequest<{ text: string; method: string }>('/translateClue', {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    }),
+
+  clues: (limit = 20) => apiRequest<{ list: any[] }>(`/clues?limit=${limit}`),
+
   caseDetail: (caseNo: string) => apiRequest<any>(`/cases/${encodeURIComponent(caseNo)}`),
 
   runPipeline: (caseNo: string, step: number) =>
-    apiRequest<{ executed: { step: number; name: string; detail: string }[]; detail: any }>(
+    apiRequest<{ executed: { step: number; name: string; detail: string; method: string }[]; detail: any }>(
       `/cases/${encodeURIComponent(caseNo)}/pipeline`,
       { method: 'POST', body: JSON.stringify({ step }) }
     ),
@@ -196,22 +293,54 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  depositCase: (caseNo: string) =>
+    apiRequest<{ id: number; caseNo: string }>(`/cases/${encodeURIComponent(caseNo)}/deposit`, {
+      method: 'POST',
+    }),
+
   deleteCase: (caseNo: string) =>
     apiRequest<{ caseNo: string }>(`/cases/${encodeURIComponent(caseNo)}`, { method: 'DELETE' }),
 
-  evidence: () => apiRequest<{ list: any[] }>('/evidence'),
+  batchDeleteCases: (caseNos: string[]) =>
+    apiRequest<{ deleted: number }>('/batchDeleteCases', {
+      method: 'POST',
+      body: JSON.stringify({ caseNos }),
+    }),
 
-  history: () => apiRequest<{ list: any[] }>('/history'),
+  evidence: () => apiRequest<{ list: any[]; summary: EvidenceSummary }>('/evidence'),
 
-  knowledge: () => apiRequest<{ list: any[] }>('/knowledge'),
+  history: () => apiRequest<{ list: HistoryItemApi[] }>('/history'),
 
-  users: () => apiRequest<{ list: any[] }>('/users'),
+  knowledge: () => apiRequest<{ list: KnowledgeItemApi[]; role: string }>('/knowledge'),
+
+  createKnowledge: (payload: Record<string, any>) =>
+    apiRequest<{ id: number }>('/createKnowledge', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
+
+  updateKnowledge: (id: number, payload: Record<string, any>) =>
+    apiRequest<{ id: number }>(`/knowledge/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  deleteKnowledge: (id: number) =>
+    apiRequest<{ id: number }>(`/knowledge/${id}`, { method: 'DELETE' }),
+
+  users: () => apiRequest<{ list: MemberItemApi[]; role: string }>('/users'),
 
   createUser: (payload: Record<string, any>) =>
-    apiRequest<any>('/createUser', { method: 'POST', body: JSON.stringify(payload) }),
+    apiRequest<{ member: MemberItemApi; username: string; initial_password: string }>('/createUser', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   updateUser: (id: number, payload: Record<string, any>) =>
-    apiRequest<any>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+    apiRequest<MemberItemApi>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
 
-  auditLogs: () => apiRequest<{ list: any[] }>('/auditLogs'),
+  deleteUser: (id: number) =>
+    apiRequest<{ id: number }>(`/users/${id}`, { method: 'DELETE' }),
+
+  auditLogs: () => apiRequest<{ list: any[]; role: string }>('/auditLogs'),
 };

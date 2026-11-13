@@ -7,50 +7,49 @@ interface Row1OverviewProps {
   pendingReviews: PendingReviewItem[];
   onSelectReview: (item: PendingReviewItem) => void;
   onViewAllReviews: () => void;
+  /** 近 12 周线索量(真实聚合),用于迷你趋势图 */
+  weeklyClues?: number[];
+  weeklyLabels?: string[];
 }
-
-const CLUES_CHART_POINTS = [
-  { x: 0, y: 68 },
-  { x: 46, y: 63 },
-  { x: 92, y: 60 },
-  { x: 138, y: 50 },
-  { x: 184, y: 57 },
-  { x: 230, y: 53 },
-  { x: 276, y: 47 },
-  { x: 322, y: 37 },
-  { x: 368, y: 42 },
-  { x: 414, y: 30 },
-  { x: 460, y: 26 },
-  { x: 506, y: 33 },
-  { x: 552, y: 24 },
-];
-
-const CLUES_X_LABELS = [
-  { label: '10-07', x: 10 },
-  { label: '10-14', x: 116 },
-  { label: '10-21', x: 224 },
-  { label: '10-28', x: 332 },
-  { label: '11-02', x: 440 },
-  { label: '11-05', x: 544 },
-];
 
 export const Row1Overview: React.FC<Row1OverviewProps> = ({
   metrics,
   pendingReviews,
   onSelectReview,
   onViewAllReviews,
+  weeklyClues,
+  weeklyLabels,
 }) => {
   const [chartRef, chartWidth] = useElementWidth<HTMLDivElement>();
-  // Scale the fixed 560-wide design coordinates to the measured container
-  // width so the chart fills the card at any size (points/text stay 1:1).
-  const cluesScale = chartWidth > 0 ? chartWidth / 560 : 0;
-  const scaledPoints = CLUES_CHART_POINTS.map((p) => ({
-    x: Math.round(p.x * cluesScale * 10) / 10,
-    y: p.y,
+
+  // 迷你趋势图:由后端 12 周真实线索量绘制;无数据时回退为平线
+  const series = weeklyClues && weeklyClues.length >= 2 ? weeklyClues : [1, 1];
+  const maxVal = Math.max(...series);
+  const minVal = Math.min(...series);
+  const span = maxVal - minVal || 1;
+  // y: 高值在上方(24),低值在下方(78)
+  const scaledPoints = series.map((v, i) => ({
+    x: Math.round((i / (series.length - 1)) * chartWidth * 10) / 10,
+    y: 78 - Math.round(((v - minVal) / span) * 54),
   }));
   const polylinePoints = scaledPoints.map((p) => `${p.x},${p.y}`).join(' ');
   const areaPoints = `0,90 ${polylinePoints} ${chartWidth},90`;
   const lastPoint = scaledPoints[scaledPoints.length - 1];
+
+  // X 轴标签:取真实周标签的等距抽样(最多 6 个)
+  const xLabels =
+    weeklyLabels && weeklyLabels.length >= 2
+      ? Array.from(
+          { length: Math.min(6, weeklyLabels.length) },
+          (_, i) => {
+            const idx = Math.round((i * (weeklyLabels.length - 1)) / (Math.min(6, weeklyLabels.length) - 1));
+            return {
+              label: weeklyLabels[idx],
+              x: Math.round((idx / (weeklyLabels.length - 1)) * (chartWidth - 16)) + 2,
+            };
+          }
+        )
+      : [];
 
   return (
     <div className="grid grid-cols-12 lg:grid-cols-[45fr_26fr_29fr] gap-3 items-stretch">
@@ -66,13 +65,7 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]" />
               <h2 className="text-[13px] font-bold text-[#0F172A]">累计线索</h2>
             </div>
-            <button
-              type="button"
-              onClick={onViewAllReviews}
-              className="text-[11px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
-            >
-              近 30 日 ›
-            </button>
+            <span className="text-[11px] text-slate-400">近 12 周趋势</span>
           </div>
 
           {/* KPI Value & Daily Avg */}
@@ -151,10 +144,10 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
             />
 
             {/* X-Axis Labels */}
-            {CLUES_X_LABELS.map((item) => (
+            {xLabels.map((item) => (
               <text
                 key={item.label}
-                x={Math.round(item.x * cluesScale * 10) / 10}
+                x={item.x}
                 y="101"
                 textAnchor="middle"
                 className="fill-slate-400 text-[9.5px] tabular-nums"
@@ -295,7 +288,7 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
             超时未审核将自动升级至终审组
           </span>
           <span className="px-2 py-0.5 rounded-full bg-red-50 text-[#EF4444] font-semibold text-[10.5px] whitespace-nowrap tabular-nums">
-            平均 6.4 小时
+            待审 {pendingReviews.length} 条
           </span>
         </div>
       </section>

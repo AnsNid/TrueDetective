@@ -77,6 +77,8 @@ export function WorkbenchView({
         pendingReviews={pendingReviews}
         onSelectReview={onSelectReview}
         onViewAllReviews={onViewAllReviews}
+        weeklyClues={dashboard?.weeklyTrends?.clues}
+        weeklyLabels={dashboard?.weeklyTrends?.labels}
       />
 
       {/* Row 2: 9-Step Funnel + Source Credibility Radar */}
@@ -93,6 +95,7 @@ export function WorkbenchView({
         onViewAllCases={onViewAllCases}
         conclusionDistribution={dashboard?.conclusionDistribution}
         imageAuthSegments={dashboard?.imageAuthSegments}
+        imageClueCount={dashboard?.imageClueCount}
       />
 
       {/* Row 4: 12-Week Trend Chart + 24x7 Submission Heatmap */}
