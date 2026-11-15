@@ -700,7 +700,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             )}
 
             {/* If Image Clue: Image Authenticity Analysis */}
-            {caseData.screening_result.image_analysis && (
+            {caseData.screening_result?.image_analysis && (
               <div className="mt-3 p-3.5 bg-purple-50/50 rounded-xl border border-purple-200 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="font-bold text-purple-900 text-[12px] flex items-center gap-1.5">
