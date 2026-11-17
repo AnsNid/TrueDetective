@@ -9,34 +9,74 @@ import {
   Check,
   Trash2,
   ScrollText,
+  Upload,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import type { MemberItemApi } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
+import type { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
+import type { RoleCode, RoleSystem } from '../../auth/permissions';
+
+/** 工作室体系角色选项 */
+const STUDIO_ROLES: { code: RoleCode; label: string; hint: string }[] = [
+  { code: 'super_admin', label: '超级管理员/总编', hint: '全部功能 · 双体系数据' },
+  { code: 'studio_lead', label: '工作室负责人', hint: '全部功能 · 工作室数据' },
+  { code: 'minister', label: '部长', hint: '无用户管理 · 可审核' },
+  { code: 'member', label: '成员', hint: '无统计看板 · 执行核查' },
+];
+
+/** 教学体系角色选项 */
+const TEACHING_ROLES: { code: RoleCode; label: string; hint: string }[] = [
+  { code: 'teacher', label: '授课老师/实验员', hint: '教学实训 · 全部教学任务' },
+  { code: 'student', label: '学生', hint: '仅本人新建任务' },
+];
+
+const roleOptions = (system: RoleSystem) =>
+  system === 'teaching' ? TEACHING_ROLES : STUDIO_ROLES;
 
 interface EditFormState {
   id: number;
   name: string;
   title: string;
   handle: string;
-  role: MemberItemApi['role'];
+  roleSystem: RoleSystem;
+  role: string;
   department: string;
   email: string;
 }
 
 interface AddFormState {
   name: string;
-  role: MemberItemApi['role'];
+  roleSystem: RoleSystem;
+  role: string;
   email: string;
+  account: string;
   password: string;
 }
 
-export const UsersView: React.FC = () => {
-  const [roleFilter, setRoleFilter] = useState<'全部' | '管理员' | '审核员' | '核查员'>('全部');
+interface ImportResult {
+  created: { no: string; name: string; username: string; password: string }[];
+  skipped: { no: string; name: string; reason: string }[];
+}
+
+interface UsersViewProps {
+  currentUser?: AuthenticatedUser | null;
+}
+
+export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
+  const [systemFilter, setSystemFilter] = useState<'全部' | RoleSystem>('全部');
   const [members, setMembers] = useState<MemberItemApi[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [addUserModal, setAddUserModal] = useState(false);
-  const [addForm, setAddForm] = useState<AddFormState>({ name: '', role: '核查员', email: '', password: '' });
+  const [addForm, setAddForm] = useState<AddFormState>({
+    name: '',
+    roleSystem: 'studio',
+    role: 'member',
+    email: '',
+    account: '',
+    password: '',
+  });
   const [editModal, setEditModal] = useState<EditFormState | null>(null);
   const [logsModal, setLogsModal] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<MemberItemApi | null>(null);
@@ -45,11 +85,48 @@ export const UsersView: React.FC = () => {
   const [modalError, setModalError] = useState<string | null>(null);
   const [createdAccount, setCreatedAccount] = useState<{ username: string; password: string } | null>(null);
 
-  // 后端成员与审计日志
+  // 批量导入学生
+  const [importModal, setImportModal] = useState(false);
+  const [importText, setImportText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
+
+  // 重置成员密码
+  const [resetPwdTarget, setResetPwdTarget] = useState<MemberItemApi | null>(null);
+  const [resetPwdValue, setResetPwdValue] = useState('');
+  const [resetPwdSaving, setResetPwdSaving] = useState(false);
+
+  const handleResetPassword = async () => {
+    if (!resetPwdTarget || resetPwdSaving) return;
+    setResetPwdSaving(true);
+    setModalError(null);
+    try {
+      const res = await api.resetUserPassword(
+        resetPwdTarget.id,
+        resetPwdValue.trim() || undefined
+      );
+      if (res.code === 200) {
+        setResetPwdTarget(null);
+        setResetPwdValue('');
+        setCreatedAccount({
+          username: resetPwdTarget.handle || resetPwdTarget.name,
+          password: res.data?.initial_password ?? '',
+        });
+        showToast(`已重置 ${resetPwdTarget.name} 的密码(见下方提示,仅显示一次)`);
+        logsQuery.reload();
+      } else {
+        setModalError(res.message || '重置失败');
+      }
+    } finally {
+      setResetPwdSaving(false);
+    }
+  };
+
+  // 后端成员与审计日志(权限以后端下发的 permissions 为准)
   const usersQuery = useApiData<{ list: MemberItemApi[]; role: string }>(() => api.users());
   const logsQuery = useApiData<{ list: any[]; role: string }>(() => api.auditLogs());
-  const myRole = usersQuery.data?.role ?? '核查员';
-  const canManage = myRole === '管理员';
+  const canManage = hasPerm(currentUser?.permissions, 'users.manage');
+  const canImport = hasPerm(currentUser?.permissions, 'students.import');
 
   useEffect(() => {
     if (usersQuery.data?.list) setMembers(usersQuery.data.list);
@@ -64,12 +141,13 @@ export const UsersView: React.FC = () => {
   };
 
   const filteredMembers = useMemo(() => {
-    if (roleFilter === '全部') return members;
-    return members.filter((m) => m.role === roleFilter);
-  }, [roleFilter, members]);
+    if (systemFilter === '全部') return members;
+    return members.filter((m) => m.roleSystem === systemFilter);
+  }, [systemFilter, members]);
 
   // 统计卡片(由后端数据计算)
-  const roleCount = (role: string) => members.filter((m) => m.role === role).length;
+  const systemCount = (system: RoleSystem) =>
+    members.filter((m) => m.roleSystem === system).length;
   const activeCount = members.filter((m) => m.status === '启用').length;
   const disabledCount = members.length - activeCount;
   const maxLoad = Math.max(...members.map((m) => m.load ?? 0), 1);
@@ -96,21 +174,25 @@ export const UsersView: React.FC = () => {
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addForm.name.trim() || saving) return;
+    if (addForm.roleSystem === 'teaching' && !/^\d{4,20}$/.test(addForm.account.trim())) {
+      setModalError('教学体系登录账号必须为 4-20 位纯数字工号');
+      return;
+    }
     setSaving(true);
     setModalError(null);
     try {
       const res = await api.createUser({
         name: addForm.name.trim(),
-        title: addForm.role === '审核员' ? '终审定论' : '核查专员',
+        roleSystem: addForm.roleSystem,
         role: addForm.role,
-        department: addForm.role === '审核员' ? '审核组' : '分析组',
-        email: addForm.email.trim(),
+        account: addForm.roleSystem === 'teaching' ? addForm.account.trim() : undefined,
+        email: addForm.roleSystem === 'studio' ? addForm.email.trim() : undefined,
         password: addForm.password.trim() || undefined,
         status: '启用',
       });
       if (res.code === 200) {
         setAddUserModal(false);
-        setAddForm({ name: '', role: '核查员', email: '', password: '' });
+        setAddForm({ name: '', roleSystem: 'studio', role: 'member', email: '', account: '', password: '' });
         showToast(
           `已添加成员 ${res.data?.member?.name ?? ''},登录账号已创建(初始密码见提示)`
         );
@@ -138,6 +220,7 @@ export const UsersView: React.FC = () => {
         name: editModal.name,
         title: editModal.title,
         handle: editModal.handle,
+        roleSystem: editModal.roleSystem,
         role: editModal.role,
         department: editModal.department,
         email: editModal.email,
@@ -175,9 +258,10 @@ export const UsersView: React.FC = () => {
   };
 
   const handleExport = () => {
-    const header = ['姓名', '职务', '句柄', '角色', '部门', '邮箱', '状态', '在办负载', '最近活跃'];
+    const header = ['姓名', '职务', '句柄', '体系', '角色', '部门', '邮箱', '状态', '在办负载', '最近活跃'];
     const rows = members.map((m) => [
-      m.name, m.title, m.handle, m.role, m.department, m.email, m.status,
+      m.name, m.title, m.handle, m.systemLabel ?? (m.roleSystem === 'teaching' ? '教学' : '工作室'),
+      m.roleLabel ?? m.role, m.department, m.email, m.status,
       String(m.load ?? 0), m.lastActive,
     ]);
     const csv = [header, ...rows]
@@ -193,27 +277,78 @@ export const UsersView: React.FC = () => {
     showToast('成员表已导出 CSV');
   };
 
-  const getRoleBadge = (role: string) => {
-    switch (role) {
-      case '管理员':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-            管理员
-          </span>
-        );
-      case '审核员':
-        return (
-          <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-amber-50 text-amber-600 border border-amber-200">
-            审核员
-          </span>
-        );
-      default:
-        return (
-          <span className="px-2 py-0.5 rounded text-[10.5px] font-semibold bg-slate-50 text-slate-500 border border-slate-200">
-            核查员
-          </span>
-        );
+  const getRoleBadge = (m: MemberItemApi) => {
+    const studioBadge: Record<string, string> = {
+      super_admin: 'bg-blue-50 text-blue-600 border-blue-200',
+      studio_lead: 'bg-sky-50 text-sky-600 border-sky-200',
+      minister: 'bg-amber-50 text-amber-600 border-amber-200',
+      member: 'bg-slate-50 text-slate-500 border-slate-200',
+    };
+    const teachingBadge: Record<string, string> = {
+      teacher: 'bg-indigo-50 text-indigo-600 border-indigo-200',
+      student: 'bg-violet-50 text-violet-600 border-violet-200',
+    };
+    const cls =
+      m.roleSystem === 'teaching'
+        ? teachingBadge[m.role] ?? teachingBadge.student
+        : studioBadge[m.role] ?? studioBadge.member;
+    return (
+      <span className="inline-flex items-center gap-1 whitespace-nowrap">
+        <span className={`px-2 py-0.5 rounded text-[10.5px] font-semibold ${cls}`}>
+          {m.roleLabel ?? m.role}
+        </span>
+        <span
+          className={`px-1 py-0.5 rounded text-[9px] font-bold ${
+            m.roleSystem === 'teaching'
+              ? 'bg-indigo-50 text-indigo-500 border border-indigo-100'
+              : 'bg-slate-50 text-slate-400 border border-slate-200'
+          }`}
+        >
+          {m.systemLabel ?? (m.roleSystem === 'teaching' ? '教学' : '工作室')}
+        </span>
+      </span>
+    );
+  };
+
+  /** 批量导入学生:提交「学号 姓名」文本,展示结果并支持导出密码 CSV */
+  const handleImportStudents = async () => {
+    if (importing) return;
+    if (!importText.trim()) {
+      setModalError('请粘贴「学号 姓名」名单,每行一条');
+      return;
     }
+    setImporting(true);
+    setModalError(null);
+    try {
+      const res = await api.importStudents(importText);
+      if (res.code === 200) {
+        setImportResult(res.data);
+        setImportText('');
+        usersQuery.reload();
+        logsQuery.reload();
+        showToast(res.message || '导入完成');
+      } else {
+        setModalError(res.message || '导入失败');
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleExportImported = () => {
+    if (!importResult) return;
+    const header = ['学号', '姓名', '初始密码'];
+    const rows = importResult.created.map((c) => [c.no, c.name, c.password]);
+    const csv = [header, ...rows]
+      .map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `学生账号初始密码_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   return (
@@ -274,33 +409,33 @@ export const UsersView: React.FC = () => {
           </div>
         </div>
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
-          <div className="text-[11px] text-slate-500 font-medium">管理员</div>
+          <div className="text-[11px] text-slate-500 font-medium">工作室体系</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{roleCount('管理员')}</span>
-            <span className="text-[10px] text-slate-400">全部权限 · 可编辑知识库</span>
+            <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">{systemCount('studio')}</span>
+            <span className="text-[10px] text-slate-400">总编/负责人/部长/成员</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
             <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '100%' }}></div>
           </div>
         </div>
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
-          <div className="text-[11px] text-slate-500 font-medium">审核员</div>
+          <div className="text-[11px] text-slate-500 font-medium">教学体系</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-amber-600 tabular-nums">{roleCount('审核员')}</span>
-            <span className="text-[10px] text-slate-400">终审定论 · 不可删除证据</span>
+            <span className="text-2xl font-extrabold text-indigo-600 tabular-nums">{systemCount('teaching')}</span>
+            <span className="text-[10px] text-slate-400">老师 {members.filter((m) => m.role === 'teacher').length} · 学生 {members.filter((m) => m.role === 'student').length}</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-amber-500 h-full rounded-full" style={{ width: `${members.length ? Math.round((roleCount('审核员') / members.length) * 100) : 0}%` }}></div>
+            <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${members.length ? Math.round((systemCount('teaching') / members.length) * 100) : 0}%` }}></div>
           </div>
         </div>
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
-          <div className="text-[11px] text-slate-500 font-medium">核查员</div>
+          <div className="text-[11px] text-slate-500 font-medium">停用账号</div>
           <div className="mt-1 flex items-baseline gap-2">
-            <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">{roleCount('核查员')}</span>
-            <span className="text-[10px] text-slate-400">提交线索 · 参与 9 环节</span>
+            <span className="text-2xl font-extrabold text-rose-600 tabular-nums">{disabledCount}</span>
+            <span className="text-[10px] text-slate-400">停用后不可登录</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '100%' }}></div>
+            <div className="bg-rose-500 h-full rounded-full" style={{ width: `${members.length ? Math.round((disabledCount / members.length) * 100) : 0}%` }}></div>
           </div>
         </div>
       </div>
@@ -312,17 +447,17 @@ export const UsersView: React.FC = () => {
           {/* Filter Row */}
           <div className="flex flex-wrap items-center justify-between gap-2.5 px-4 py-3 border-b border-slate-100">
             <div className="flex items-center gap-1.5">
-              {(['全部', '管理员', '审核员', '核查员'] as const).map((r) => (
+              {(['全部', 'studio', 'teaching'] as const).map((r) => (
                 <button
                   key={r}
-                  onClick={() => setRoleFilter(r)}
+                  onClick={() => setSystemFilter(r)}
                   className={`px-3 py-1 rounded-md transition-colors cursor-pointer text-[11.5px] ${
-                    roleFilter === r
+                    systemFilter === r
                       ? 'bg-blue-50 text-blue-600 font-semibold border border-blue-200'
                       : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  {r === '全部' ? '全部角色' : r}
+                  {r === '全部' ? '全部体系' : r === 'studio' ? '工作室体系' : '教学体系'}
                 </button>
               ))}
             </div>
@@ -345,6 +480,20 @@ export const UsersView: React.FC = () => {
               >
                 查看操作日志
               </button>
+              {canImport && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setImportModal(true);
+                    setImportResult(null);
+                    setModalError(null);
+                  }}
+                  className="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-600 font-medium flex items-center gap-1 transition-colors cursor-pointer text-[11px]"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  批量导入学生
+                </button>
+              )}
               {canManage && (
                 <button
                   type="button"
@@ -415,7 +564,7 @@ export const UsersView: React.FC = () => {
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 whitespace-nowrap">{getRoleBadge(m.role)}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">{getRoleBadge(m)}</td>
                       <td className="py-2.5 px-3 whitespace-nowrap">{m.department}</td>
                       <td className="py-2.5 px-3 whitespace-nowrap text-slate-500">{m.email || '—'}</td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
@@ -446,6 +595,7 @@ export const UsersView: React.FC = () => {
                                     name: m.name,
                                     title: m.title,
                                     handle: m.handle,
+                                    roleSystem: m.roleSystem ?? 'studio',
                                     role: m.role,
                                     department: m.department,
                                     email: m.email,
@@ -464,6 +614,19 @@ export const UsersView: React.FC = () => {
                               </button>
                               <span className="text-slate-300">·</span>
                               <button
+                                onClick={() => {
+                                  setResetPwdTarget(m);
+                                  setResetPwdValue('');
+                                  setModalError(null);
+                                }}
+                                disabled={!m.hasAccount}
+                                title={!m.hasAccount ? '该成员未绑定登录账号' : '重置该成员的登录密码'}
+                                className="text-slate-500 hover:text-blue-600 cursor-pointer disabled:text-slate-300 disabled:cursor-not-allowed"
+                              >
+                                重置密码
+                              </button>
+                              <span className="text-slate-300">·</span>
+                              <button
                                 onClick={() => setDeleteTarget(m)}
                                 className="text-slate-400 hover:text-rose-600 cursor-pointer"
                               >
@@ -471,7 +634,7 @@ export const UsersView: React.FC = () => {
                               </button>
                             </>
                           ) : (
-                            <span className="text-slate-300">管理需管理员</span>
+                            <span className="text-slate-300">管理需总编/负责人</span>
                           )}
                         </div>
                       </td>
@@ -503,7 +666,7 @@ export const UsersView: React.FC = () => {
                   <div key={m.id}>
                     <div className="flex items-center justify-between text-[11px] mb-1">
                       <span className="text-slate-600 font-medium">{m.name}</span>
-                      <span className="text-slate-400">{m.role} · {m.load} 件</span>
+                      <span className="text-slate-400">{m.roleLabel ?? m.role} · {m.load} 件</span>
                     </div>
                     <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                       <div
@@ -534,32 +697,36 @@ export const UsersView: React.FC = () => {
               </div>
               <span className="text-[10px] text-slate-400">接口级 RBAC</span>
             </div>
-            <table className="w-full text-left text-[11px] text-slate-600">
-              <thead className="text-[10px] text-slate-400 border-b border-slate-100">
+            <table className="w-full text-left text-[10.5px] text-slate-600">
+              <thead className="text-[9.5px] text-slate-400 border-b border-slate-100">
                 <tr>
-                  <th className="pb-1.5 font-medium">操作</th>
-                  <th className="pb-1.5 font-medium text-center">管理员</th>
-                  <th className="pb-1.5 font-medium text-center">审核员</th>
-                  <th className="pb-1.5 font-medium text-center">核查员</th>
+                  <th className="pb-1.5 font-medium">功能</th>
+                  <th className="pb-1.5 font-medium text-center">总编</th>
+                  <th className="pb-1.5 font-medium text-center">负责人</th>
+                  <th className="pb-1.5 font-medium text-center">部长</th>
+                  <th className="pb-1.5 font-medium text-center">成员</th>
+                  <th className="pb-1.5 font-medium text-center">老师</th>
+                  <th className="pb-1.5 font-medium text-center">学生</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {[
-                  { op: '提交线索/推进环节', p: [true, true, true] },
-                  { op: '终审结案', p: [true, true, false] },
-                  { op: '案例沉淀', p: [true, true, false] },
-                  { op: '知识库编辑', p: [true, true, false] },
-                  { op: '知识库删除', p: [true, false, false] },
-                  { op: '成员管理/删除案件', p: [true, false, false] },
+                  { op: '新建任务/推进环节', p: [true, true, true, true, true, true] },
+                  { op: '工作台/证据库/知识库', p: [true, true, true, true, false, false] },
+                  { op: '数据统计看板', p: [true, true, true, false, false, false] },
+                  { op: '人工审核/案例沉淀', p: [true, true, true, false, false, false] },
+                  { op: '知识库编辑', p: [true, true, true, false, false, false] },
+                  { op: '删除案件/知识库', p: [true, true, false, false, false, false] },
+                  { op: '用户管理/导入学生', p: [true, true, false, false, false, false] },
                 ].map((row) => (
                   <tr key={row.op}>
-                    <td className="py-1.5">{row.op}</td>
+                    <td className="py-1.5 pr-1">{row.op}</td>
                     {row.p.map((ok, i) => (
                       <td key={i} className="py-1.5 text-center">
                         {ok ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-500 inline" />
+                          <Check className="w-3 h-3 text-emerald-500 inline" />
                         ) : (
-                          <span className="text-slate-300 text-[10px]">—</span>
+                          <span className="text-slate-300 text-[9px]">—</span>
                         )}
                       </td>
                     ))}
@@ -568,7 +735,7 @@ export const UsersView: React.FC = () => {
               </tbody>
             </table>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              当前登录角色「{myRole}」。操作人与审核人由服务端会话身份确定,不可伪造。
+              数据可见范围:总编=双体系全部;负责人/部长/成员=工作室任务;老师=教学任务;学生=仅本人新建。两套体系数据互不可见(总编除外)。
             </p>
           </div>
         </div>
@@ -595,6 +762,24 @@ export const UsersView: React.FC = () => {
                 </div>
               )}
               <div>
+                <label className="block text-slate-700 font-semibold mb-1">角色体系</label>
+                <select
+                  value={addForm.roleSystem}
+                  onChange={(e) => {
+                    const system = e.target.value as RoleSystem;
+                    setAddForm({
+                      ...addForm,
+                      roleSystem: system,
+                      role: system === 'teaching' ? 'teacher' : 'member',
+                    });
+                  }}
+                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="studio">工作室体系 (总编/负责人/部长/成员)</option>
+                  <option value="teaching">教学体系 (授课老师/实验员)</option>
+                </select>
+              </div>
+              <div>
                 <label className="block text-slate-700 font-semibold mb-1">成员姓名 *</label>
                 <input
                   type="text"
@@ -609,29 +794,50 @@ export const UsersView: React.FC = () => {
                 <label className="block text-slate-700 font-semibold mb-1">系统角色</label>
                 <select
                   value={addForm.role}
-                  onChange={(e) => setAddForm({ ...addForm, role: e.target.value as MemberItemApi['role'] })}
+                  onChange={(e) => setAddForm({ ...addForm, role: e.target.value })}
                   className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
-                  <option value="核查员">核查员 (提交线索 · 推进 9 环节)</option>
-                  <option value="审核员">审核员 (终审定论)</option>
-                  <option value="管理员">管理员 (系统全权限)</option>
+                  {roleOptions(addForm.roleSystem).map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.label} ({r.hint})
+                    </option>
+                  ))}
                 </select>
               </div>
+              {addForm.roleSystem === 'studio' ? (
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    登录邮箱 <span className="text-slate-400 font-normal">(作为登录账号)</span>
+                  </label>
+                  <input
+                    type="email"
+                    value={addForm.email}
+                    onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
+                    placeholder="如: chenxm@zhentan.org"
+                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-slate-700 font-semibold mb-1">
+                    工号 <span className="text-slate-400 font-normal">(纯数字,作为登录账号)</span>
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={addForm.account}
+                    onChange={(e) => setAddForm({ ...addForm, account: e.target.value })}
+                    placeholder="如: 10086"
+                    className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              )}
               <div>
                 <label className="block text-slate-700 font-semibold mb-1">
-                  登录邮箱 <span className="text-slate-400 font-normal">(作为登录账号)</span>
-                </label>
-                <input
-                  type="email"
-                  value={addForm.email}
-                  onChange={(e) => setAddForm({ ...addForm, email: e.target.value })}
-                  placeholder="如: chenxm@zhentan.org"
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">
-                  初始密码 <span className="text-slate-400 font-normal">(留空默认 Zt@2026)</span>
+                  初始密码{' '}
+                  <span className="text-slate-400 font-normal">
+                    (留空:{addForm.roleSystem === 'studio' ? '默认 Zt@2026' : '随机生成,仅本次显示'})
+                  </span>
                 </label>
                 <input
                   type="text"
@@ -701,16 +907,35 @@ export const UsersView: React.FC = () => {
                 </div>
               ))}
               <div>
-                <label className="block text-slate-700 font-semibold mb-1">角色</label>
-                <select
-                  value={editModal.role}
-                  onChange={(e) => setEditModal({ ...editModal, role: e.target.value as MemberItemApi['role'] })}
-                  className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="核查员">核查员</option>
-                  <option value="审核员">审核员</option>
-                  <option value="管理员">管理员</option>
-                </select>
+                <label className="block text-slate-700 font-semibold mb-1">角色体系 / 角色</label>
+                <div className="flex gap-2">
+                  <select
+                    value={editModal.roleSystem}
+                    onChange={(e) => {
+                      const system = e.target.value as RoleSystem;
+                      setEditModal({
+                        ...editModal,
+                        roleSystem: system,
+                        role: system === 'teaching' ? 'teacher' : 'member',
+                      });
+                    }}
+                    className="w-2/5 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="studio">工作室</option>
+                    <option value="teaching">教学</option>
+                  </select>
+                  <select
+                    value={editModal.role}
+                    onChange={(e) => setEditModal({ ...editModal, role: e.target.value })}
+                    className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {roleOptions(editModal.roleSystem).map((r) => (
+                      <option key={r.code} value={r.code}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="pt-2 flex justify-end gap-2">
                 <button
@@ -729,6 +954,62 @@ export const UsersView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetPwdTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+                <Shield className="w-4 h-4 text-blue-500" />
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-900 text-sm">
+                  重置 {resetPwdTarget.name} 的密码?
+                </h3>
+                <p className="text-[11.5px] text-slate-500 mt-1 leading-relaxed">
+                  账号 <span className="font-mono">{resetPwdTarget.handle}</span>
+                  的密码将立即失效。留空将随机生成 8 位密码(仅显示一次,可导出)。
+                </p>
+              </div>
+            </div>
+            {modalError && (
+              <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px]">
+                {modalError}
+              </div>
+            )}
+            <div className="text-xs">
+              <label className="block text-slate-700 font-semibold mb-1">
+                新密码 <span className="text-slate-400 font-normal">(留空随机生成)</span>
+              </label>
+              <input
+                type="text"
+                value={resetPwdValue}
+                onChange={(e) => setResetPwdValue(e.target.value)}
+                placeholder="不少于 6 位,留空随机"
+                className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setResetPwdTarget(null)}
+                className="px-4 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer text-xs"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleResetPassword}
+                disabled={resetPwdSaving}
+                className="px-4 py-1.5 bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium cursor-pointer disabled:cursor-not-allowed text-xs"
+              >
+                {resetPwdSaving ? '重置中…' : '确认重置'}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -761,6 +1042,127 @@ export const UsersView: React.FC = () => {
                 className="px-4 py-1.5 bg-rose-600 hover:bg-rose-700 disabled:bg-rose-300 text-white rounded-lg font-medium cursor-pointer text-xs"
               >
                 {saving ? '删除中…' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Students Modal */}
+      {importModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+          <div className="bg-white rounded-xl shadow-xl max-w-xl w-full p-5 space-y-4 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                <Upload className="w-4 h-4 text-indigo-500" /> 批量导入学生(教学体系)
+              </h3>
+              <button
+                onClick={() => setImportModal(false)}
+                className="text-slate-400 hover:text-slate-700 text-sm font-bold cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs overflow-y-auto -mx-1 px-1">
+              {modalError && (
+                <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px]">
+                  {modalError}
+                </div>
+              )}
+              <div>
+                <label className="block text-slate-700 font-semibold mb-1">
+                  名单 <span className="text-slate-400 font-normal">每行一条:「学号 姓名」或「学号,姓名」</span>
+                </label>
+                <textarea
+                  rows={6}
+                  value={importText}
+                  onChange={(e) => setImportText(e.target.value)}
+                  placeholder={'20261001 张三\n20261002,李四\n20261003 王五'}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono text-[11.5px]"
+                  disabled={importing}
+                />
+                <p className="text-[10.5px] text-slate-400 mt-1 leading-relaxed">
+                  学号须为 4-20 位纯数字;姓名仅展示不做系统校验;每个账号随机生成 8 位初始密码,仅导入结果中显示一次,请及时导出分发。
+                </p>
+              </div>
+
+              {importResult && (
+                <div className="space-y-2.5">
+                  <div className="px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11px] font-semibold">
+                    导入完成:成功 {importResult.created.length} 人,跳过 {importResult.skipped.length} 人
+                  </div>
+                  {importResult.created.length > 0 && (
+                    <div className="border border-slate-200 rounded-lg overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/60 border-b border-indigo-100">
+                        <span className="font-semibold text-indigo-700 text-[11px]">
+                          初始密码(仅本次显示)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleExportImported}
+                          className="px-2.5 py-1 rounded bg-white border border-indigo-200 text-indigo-600 hover:bg-indigo-50 font-medium text-[10.5px] cursor-pointer flex items-center gap-1"
+                        >
+                          <Download className="w-3 h-3" /> 导出 CSV
+                        </button>
+                      </div>
+                      <table className="w-full text-left text-[11px] text-slate-600">
+                        <thead className="bg-slate-50/70 text-[10px] text-slate-400 border-b border-slate-100">
+                          <tr>
+                            <th className="py-1.5 px-3 font-medium">学号</th>
+                            <th className="py-1.5 px-3 font-medium">姓名</th>
+                            <th className="py-1.5 px-3 font-medium">初始密码</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {importResult.created.map((c) => (
+                            <tr key={c.no}>
+                              <td className="py-1.5 px-3 font-mono">{c.no}</td>
+                              <td className="py-1.5 px-3">{c.name}</td>
+                              <td className="py-1.5 px-3 font-mono font-bold text-indigo-600">{c.password}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                  {importResult.skipped.length > 0 && (
+                    <div className="border border-amber-200 rounded-lg overflow-hidden">
+                      <div className="px-3 py-1.5 bg-amber-50 text-amber-700 text-[10.5px] font-semibold border-b border-amber-100">
+                        已跳过 {importResult.skipped.length} 条
+                      </div>
+                      <table className="w-full text-left text-[11px] text-slate-600">
+                        <tbody className="divide-y divide-slate-50">
+                          {importResult.skipped.map((s, i) => (
+                            <tr key={i}>
+                              <td className="py-1.5 px-3 font-mono">{s.no || '—'}</td>
+                              <td className="py-1.5 px-3">{s.name || '—'}</td>
+                              <td className="py-1.5 px-3 text-amber-600">{s.reason}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setImportModal(false)}
+                className="px-4 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                onClick={handleImportStudents}
+                disabled={importing}
+                className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 disabled:bg-indigo-300 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1.5"
+              >
+                {importing ? '正在导入…' : '开始导入'}
               </button>
             </div>
           </div>

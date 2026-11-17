@@ -106,7 +106,12 @@ export interface BackendUser {
   uid: number;
   username: string;
   nickname: string;
+  /** 角色代码(super_admin/studio_lead/minister/member/teacher/student) */
+  role?: string;
   roleLabel?: string;
+  /** 角色体系: studio=工作室 / teaching=教学 */
+  roleSystem?: 'studio' | 'teaching';
+  systemLabel?: string;
   mobile?: string;
   email?: string;
   groupid?: number;
@@ -152,6 +157,8 @@ export interface TaskItemApi {
   conclusion: string;
   status: '报告生成' | '已结案' | '进行中';
   createdAt: string;
+  /** 所属体系: studio=工作室 / teaching=教学(总编混排视图区分) */
+  system?: 'studio' | 'teaching';
 }
 
 export interface TasksPayload {
@@ -227,7 +234,11 @@ export interface MemberItemApi {
   name: string;
   title: string;
   handle: string;
-  role: '管理员' | '审核员' | '核查员';
+  /** 角色代码(super_admin/studio_lead/minister/member/teacher/student) */
+  role: string;
+  roleSystem: 'studio' | 'teaching';
+  roleLabel: string;
+  systemLabel: string;
   department: string;
   email: string;
   status: '启用' | '停用';
@@ -249,6 +260,37 @@ export const api = {
     }),
 
   getUserInfo: () => apiRequest<BackendUser>('/getUserInfo'),
+
+  /** 发送密码找回验证码(工作室邮箱账号,免鉴权) */
+  sendResetCode: (email: string) =>
+    apiRequest<{ email: string }>('/sendResetCode', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
+
+  /** 邮箱验证码重置密码(免鉴权) */
+  resetPassword: (email: string, code: string, password: string) =>
+    apiRequest<{ email: string }>('/resetPassword', {
+      method: 'POST',
+      body: JSON.stringify({ email, code, password }),
+    }),
+
+  /** 修改自己的登录密码(验旧改新) */
+  changePassword: (oldPassword: string, password: string) =>
+    apiRequest<{ uid: number }>('/changePassword', {
+      method: 'POST',
+      body: JSON.stringify({ oldPassword, password }),
+    }),
+
+  /** 管理员重置成员密码(留空随机,明文仅本次返回) */
+  resetUserPassword: (id: number, password?: string) =>
+    apiRequest<{ id: number; name: string; initial_password: string }>(
+      `/users/${id}/resetPassword`,
+      {
+        method: 'POST',
+        body: JSON.stringify(password ? { password } : {}),
+      }
+    ),
 
   dashboard: (range: string) =>
     apiRequest<DashboardPayload>(`/dashboard?range=${encodeURIComponent(range)}`),
@@ -328,12 +370,35 @@ export const api = {
   deleteKnowledge: (id: number) =>
     apiRequest<{ id: number }>(`/knowledge/${id}`, { method: 'DELETE' }),
 
-  users: () => apiRequest<{ list: MemberItemApi[]; role: string }>('/users'),
+  users: (system?: 'studio' | 'teaching') =>
+    apiRequest<{ list: MemberItemApi[]; role: string; permissions?: string[] }>(
+      `/users${system ? `?system=${system}` : ''}`
+    ),
 
   createUser: (payload: Record<string, any>) =>
     apiRequest<{ member: MemberItemApi; username: string; initial_password: string }>('/createUser', {
       method: 'POST',
       body: JSON.stringify(payload),
+    }),
+
+  /** 教学体系自助注册(学号/工号 + 姓名 + 密码) */
+  teachingRegister: (studentNo: string, name: string, password: string) =>
+    apiRequest<{ username: string; role: string; roleLabel: string; roleSystem: string }>(
+      '/teachingRegister',
+      {
+        method: 'POST',
+        body: JSON.stringify({ studentNo, name, password }),
+      }
+    ),
+
+  /** 批量导入学生(学号+姓名,随机初始密码仅本次返回) */
+  importStudents: (students: Array<{ no: string; name: string }> | string) =>
+    apiRequest<{
+      created: { no: string; name: string; username: string; password: string }[];
+      skipped: { no: string; name: string; reason: string }[];
+    }>('/importStudents', {
+      method: 'POST',
+      body: JSON.stringify({ students }),
     }),
 
   updateUser: (id: number, payload: Record<string, any>) =>

@@ -25,10 +25,15 @@
 | 历史案例 | `/history` | 已结案案例与核查报告 | `GET /history` |
 | 知识库 | `/knowledge` | 核查规范与素材沉淀 | `GET /knowledge` |
 | 数据统计 | `/statistics` | 概况卡片、结论分布、环节流转、成员产出、来源平台 | `GET /statistics` |
-| 用户管理 | `/users` | 成员增改、启停状态、操作审计日志 | `GET/POST /users` `PUT/DELETE /users/{id}` `GET /auditLogs` |
+| 用户管理 | `/users` | 双体系成员增改、启停状态、批量导入学生、操作审计日志 | `GET/POST /users` `PUT/DELETE /users/{id}` `POST /importStudents` `GET /auditLogs` |
 
 - **真实登录**：登录/鉴权走后端 Passport,token 全局存储于 `localStorage` 的 `x-token`;401 自动清理本地会话
-- **接口级 RBAC**:管理员/审核员/核查员三角色;终审仅审核员+管理员、成员管理与案件删除仅管理员;操作人/审核人一律取服务端会话身份
+- **双角色体系 RBAC**(服务端为唯一事实源,前端菜单/路由/按钮按下发权限过滤):
+  - **工作室体系**:`super_admin`(超级管理员/总编,双体系全部数据)/`studio_lead`(工作室负责人,全部功能)/`minister`(部长,无用户管理)/`member`(成员,无用户管理与统计看板);人工审核(终审/沉淀)=总编+负责人+部长;删除案件/知识库=总编+负责人
+  - **教学体系**:`teacher`(授课老师/实验员)与 `student`(学生)仅可新建任务、查看已核查案例、任务列表/详情;老师可见全部教学任务,学生仅见本人新建;两套体系数据互不可见(总编除外)
+  - **教学注册**:登录页「学生注册」自助注册(学号/工号纯数字+姓名+密码);用户管理页支持粘贴「学号 姓名」批量导入,随机初始密码仅显示一次并可导出 CSV;学号+密码登录
+  - **找回/修改密码**:工作室邮箱账号走登录页「忘记密码」邮箱验证码自助重置(mail 模块 SMTP,验证码 10 分钟有效、60 秒防刷);教学学号账号由总编/负责人在用户管理页「重置密码」(留空随机生成,仅显示一次);登录用户可在顶栏用户菜单「修改密码」(验旧改新,成功后重新登录)
+  - **操作审计**:登录、提交线索、流水线推进、终审定论、案例沉淀、删除、用户增删改、批量导入、密码重置/修改/自助找回全量记入审计日志(用户管理页可查最近 100 条)
 - **统计全真实**:漏斗/热力图/周趋势/KPI/结论分布/成员产出全部由数据表实时聚合,无写死数字
 - **URL 路由**：Hash 模式(`/#/workbench`),深链接可直接分享案件地址
 - **响应式**：桌面固定侧边栏、移动端抽屉菜单;图表按容器宽度自适应
@@ -53,8 +58,9 @@ php index.php app detective install --database=default
 php index.php start detective
 ```
 
-> 后端代码改动后需 `rm -rf runtime/container` 清 DI 缓存再重启。
-> 演示账号:`zhangming@zhentan.org / Zt@2026Admin`(管理员)、`wangsisi@zhentan.org / Zt@2026Verify`(核查员,验证 RBAC 用)。
+> 后端代码改动后需 `rm -rf runtime/container` 清 DI 缓存再重启。存量库升级执行 `app/detective/Install/upgrade_20261117.sql`(表前缀 `#@_` 需替换为实际前缀)。
+> 演示账号(工作室):`zhangming@zhentan.org / Zt@2026Admin`(总编)、`wangsisi@zhentan.org / Zt@2026Verify`(成员)。
+> 演示账号(教学):`10001 / Zt@2026Teach`(授课老师)、`20260001 / Zt@2026Stu`(学生)。
 > 可选配置:`TAVILY_API_KEY`(联网搜索)、`DETECTIVE_AI_MODEL`(指定 LLM,默认跟随 openai 模块路由表)、`DETECTIVE_CORS_ALLOW_ORIGINS`(CORS 白名单,默认本机 3000 端口)。
 
 ### 2. 启动前端

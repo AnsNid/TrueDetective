@@ -12,21 +12,23 @@ import {
 import { api } from '../../api/client';
 import type { HistoryItemApi } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
+import type { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
 
 interface HistoryViewProps {
   onSelectCaseDetail?: (caseId: string) => void;
-  currentUserRole?: string;
+  currentUser?: AuthenticatedUser | null;
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   onSelectCaseDetail,
-  currentUserRole = '管理员',
+  currentUser,
 }) => {
   const [selectedCaseModal, setSelectedCaseModal] = useState<HistoryItemApi | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [depositingId, setDepositingId] = useState<string | null>(null);
 
-  const canDeposit = currentUserRole === '管理员' || currentUserRole === '审核员';
+  const canDeposit = hasPerm(currentUser?.permissions, 'case.review');
 
   // 后端已结案案例
   const historyQuery = useApiData<{ list: HistoryItemApi[] }>(() => api.history());

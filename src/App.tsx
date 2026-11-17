@@ -21,6 +21,7 @@ import { LoginPage, AuthenticatedUser } from './components/LoginPage';
 import { api, getSavedToken, setSavedToken, clearSavedToken } from './api/client';
 import { useApiData } from './api/hooks';
 import type { DashboardPayload } from './api/client';
+import { hasPerm, Permission } from './auth/permissions';
 
 // Route-level code splitting: each view loads on demand via its own chunk.
 const WorkbenchView = lazy(() =>
@@ -106,9 +107,14 @@ function AppShell() {
   const [authChecking, setAuthChecking] = useState<boolean>(isAuthenticated);
 
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser>({
-    displayName: '张明',
-    roleLabel: '管理员',
-    avatarChar: '张',
+    displayName: '加载中',
+    roleLabel: '成员',
+    avatarChar: '核',
+    // permissions 为 undefined 表示身份尚未从 getUserInfo 加载完成,
+    // 此时守卫先显示加载态,避免用空权限把总编误重定向到 /tasks
+    role: undefined,
+    roleSystem: undefined,
+    permissions: undefined,
   });
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -120,12 +126,17 @@ function AppShell() {
   const location = useLocation();
 
   // 工作台聚合数据(仪表盘 KPI / 漏斗 / 待审核 / 进行中案件)
+  // 教学体系无工作台权限时不发起请求,直接置空走本地兜底
+  const canDashboard = hasPerm(currentUser.permissions, 'dashboard.view');
   const dashboard = useApiData<DashboardPayload>(
-    () => api.dashboard(activeTimeRange),
-    [activeTimeRange, isAuthenticated]
+    () =>
+      canDashboard
+        ? api.dashboard(activeTimeRange)
+        : Promise.resolve({ code: 200, message: 'success', data: null as unknown as DashboardPayload }),
+    [activeTimeRange, isAuthenticated, canDashboard]
   );
 
-  // 启动时校验已存 token,并加载用户身份
+  // 启动时校验已存 token,并加载用户身份(角色/体系/权限以后端为准)
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
@@ -134,13 +145,20 @@ function AppShell() {
       if (cancelled) return;
       setAuthChecking(false);
       if (res.code === 200 && res.data) {
-        const nickname = res.data.nickname || res.data.username || '核查员';
+        const nickname = res.data.nickname || res.data.username || '成员';
         setCurrentUser({
           displayName: nickname,
-          roleLabel: res.data.roleLabel || '管理员',
+          roleLabel: res.data.roleLabel || '成员',
           avatarChar: nickname.charAt(0) || '核',
+          role: res.data.role,
+          roleSystem: res.data.roleSystem,
+          permissions: res.data.permissions ?? [],
         });
       } else if (res.code === 401) {
+        setIsAuthenticated(false);
+      } else if (res.code !== 200) {
+        // 账号被停用/未接入核查平台等:清理会话回登录页,避免卡在加载态
+        clearSavedToken();
         setIsAuthenticated(false);
       }
     });
@@ -175,6 +193,24 @@ function AppShell() {
   }, []);
 
   const currentMetrics = dashboard.data?.metrics ?? METRICS_BY_TIME_RANGE[activeTimeRange];
+
+  // 登录后落地页: 有工作台权限进工作台,教学体系落核查任务列表
+  const landing = useMemo(
+    () => (hasPerm(currentUser.permissions, 'dashboard.view') ? '/workbench' : '/tasks'),
+    [currentUser.permissions]
+  );
+
+  /** 路由守卫:权限未加载完成先显示加载态,无对应权限时重定向到落地页(后端同权限拦截为最终防线) */
+  const guard = (perm: Permission, element: React.ReactNode) => {
+    if (currentUser.permissions === undefined) {
+      return <RouteFallback />;
+    }
+    return hasPerm(currentUser.permissions, perm) ? (
+      element
+    ) : (
+      <Navigate to={landing} replace />
+    );
+  };
 
   const filteredOngoingCases = useMemo(
     () => filterOngoingCases(dashboard.data?.ongoingCases ?? [], searchQuery),
@@ -242,6 +278,7 @@ function AppShell() {
       <Sidebar
         mobileOpen={mobileMenuOpen}
         onCloseMobile={() => setMobileMenuOpen(false)}
+        permissions={currentUser.permissions}
       />
 
       {/* Right Main Workspace */}
@@ -291,23 +328,37 @@ function AppShell() {
         <main className="flex-1 px-3.5 sm:px-5 py-3 space-y-3 w-full">
           <Suspense fallback={<RouteFallback />}>
             <Routes>
-            <Route path="/" element={<Navigate to="/workbench" replace />} />
-
-            {/* Already logged in: /login just lands back on the app (where we came from, if known) */}
             <Route
-              path="/login"
+              path="/"
               element={
-                <Navigate
-                  to={(location.state as LocationState)?.from ?? '/workbench'}
-                  replace
-                />
+                currentUser.permissions === undefined ? (
+                  <RouteFallback />
+                ) : (
+                  <Navigate to={landing} replace />
+                )
               }
             />
 
-            {/* Workbench View */}
+            {/* Already logged in: /login just lands back on the app (where we came from, if known).
+                权限未加载完成前先显示加载态,避免误跳到无权限页面 */}
+            <Route
+              path="/login"
+              element={
+                currentUser.permissions === undefined ? (
+                  <RouteFallback />
+                ) : (
+                  <Navigate
+                    to={(location.state as LocationState)?.from ?? landing}
+                    replace
+                  />
+                )
+              }
+            />
+
+            {/* Workbench View (工作室体系) */}
             <Route
               path="/workbench"
-              element={
+              element={guard('dashboard.view',
                 <WorkbenchView
                   metrics={currentMetrics}
                   pendingReviews={filteredPendingReviews}
@@ -322,59 +373,78 @@ function AppShell() {
                   dashboardError={dashboard.error}
                   onReloadDashboard={dashboard.reload}
                 />
-              }
+              )}
             />
 
-            {/* Clues View (线索中心 · 新建线索) */}
+            {/* Clues View (线索中心 · 新建任务) */}
             <Route
               path="/clues"
-              element={
+              element={guard('clues.create',
                 <CluesView
+                  currentUser={currentUser}
                   onSuccessSubmit={(newCaseId, caseTitle) => {
                     handleTriggerBanner(`线索已创建并生成任务: "${caseTitle}"`);
                     openCase(newCaseId);
                   }}
                 />
-              }
+              )}
             />
 
             {/* Tasks View (核查任务) */}
             <Route
               path="/tasks"
-              element={
+              element={guard('tasks.view',
                 <TasksView
                   onOpenNewClue={() => navigate('/clues')}
                   onSelectTask={(task) => openCase(task.id)}
-                  currentUserRole={currentUser.roleLabel}
+                  currentUser={currentUser}
                 />
-              }
+              )}
             />
 
-            {/* Evidence View (证据库) */}
+            {/* Evidence View (证据库,工作室体系) */}
             <Route
               path="/evidence"
-              element={<EvidenceView onSelectCase={openCase} />}
+              element={guard('evidence.view',
+                <EvidenceView onSelectCase={openCase} />
+              )}
             />
 
-            {/* History Cases View (历史案例) */}
+            {/* History Cases View (历史案例 · 已核查的案例) */}
             <Route
               path="/history"
-              element={<HistoryView onSelectCaseDetail={openCase} />}
+              element={guard('history.view',
+                <HistoryView
+                  onSelectCaseDetail={openCase}
+                  currentUser={currentUser}
+                />
+              )}
             />
 
-            {/* Knowledge Base View (知识库) */}
-            <Route path="/knowledge" element={<KnowledgeView />} />
+            {/* Knowledge Base View (知识库,工作室体系) */}
+            <Route
+              path="/knowledge"
+              element={guard('knowledge.view',
+                <KnowledgeView currentUser={currentUser} />
+              )}
+            />
 
-            {/* Data Statistics View (数据统计) */}
-            <Route path="/statistics" element={<StatisticsView />} />
+            {/* Data Statistics View (数据统计,工作室体系 · 无成员权限) */}
+            <Route
+              path="/statistics"
+              element={guard('statistics.view', <StatisticsView />)}
+            />
 
-            {/* User Management View (用户管理) */}
-            <Route path="/users" element={<UsersView />} />
+            {/* User Management View (用户管理,总编/负责人) */}
+            <Route
+              path="/users"
+              element={guard('users.manage', <UsersView currentUser={currentUser} />)}
+            />
 
             {/* Case Detail Workbench, addressable as /cases/:caseId */}
             <Route
               path="/cases/:caseId"
-              element={
+              element={guard('case.view',
                 <CaseDetailRoute
                   currentUser={currentUser}
                   onBack={closeCase}
@@ -388,11 +458,11 @@ function AppShell() {
                     dashboard.reload();
                   }}
                 />
-              }
+              )}
             />
 
-            {/* Unknown paths fall back to the workbench */}
-            <Route path="*" element={<Navigate to="/workbench" replace />} />
+            {/* Unknown paths fall back to the landing page */}
+            <Route path="*" element={<Navigate to={landing} replace />} />
             </Routes>
           </Suspense>
         </main>

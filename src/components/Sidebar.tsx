@@ -11,6 +11,7 @@ import {
   User,
   X,
 } from 'lucide-react';
+import { hasPerm, Permission } from '../auth/permissions';
 
 export type NavKey =
   | 'workbench'
@@ -25,23 +26,34 @@ export type NavKey =
 interface SidebarProps {
   mobileOpen?: boolean;
   onCloseMobile?: () => void;
+  /** 当前登录用户的功能权限(后端下发),菜单按权限过滤 */
+  permissions?: string[];
 }
 
-const NAV_ITEMS: { key: NavKey; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { key: 'workbench', label: '工作台', icon: Home },
-  { key: 'clues', label: '线索中心', icon: Search },
-  { key: 'tasks', label: '核查任务', icon: FileText },
-  { key: 'evidence', label: '证据库', icon: Folder },
-  { key: 'history', label: '历史案例', icon: Clock },
-  { key: 'knowledge', label: '知识库', icon: BookOpen },
-  { key: 'statistics', label: '数据统计', icon: BarChart2 },
-  { key: 'users', label: '用户管理', icon: User },
+const NAV_ITEMS: {
+  key: NavKey;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  /** 进入该页面所需权限 */
+  perm: Permission;
+}[] = [
+  { key: 'workbench', label: '工作台', icon: Home, perm: 'dashboard.view' },
+  { key: 'clues', label: '线索中心', icon: Search, perm: 'clues.create' },
+  { key: 'tasks', label: '核查任务', icon: FileText, perm: 'tasks.view' },
+  { key: 'evidence', label: '证据库', icon: Folder, perm: 'evidence.view' },
+  { key: 'history', label: '历史案例', icon: Clock, perm: 'history.view' },
+  { key: 'knowledge', label: '知识库', icon: BookOpen, perm: 'knowledge.view' },
+  { key: 'statistics', label: '数据统计', icon: BarChart2, perm: 'statistics.view' },
+  { key: 'users', label: '用户管理', icon: User, perm: 'users.manage' },
 ];
 
 export const Sidebar: React.FC<SidebarProps> = ({
   mobileOpen = false,
   onCloseMobile,
+  permissions,
 }) => {
+  const visibleItems = NAV_ITEMS.filter((item) => hasPerm(permissions, item.perm));
+
   const renderNavContent = (isMobileDrawer: boolean) => (
     <>
       {/* Top Brand + Nav */}
@@ -72,7 +84,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation Links */}
         <nav className="px-2.5 mt-1 space-y-1">
-          {NAV_ITEMS.map((item) => {
+          {visibleItems.map((item) => {
             const Icon = item.icon;
             return (
               <NavLink

@@ -29,6 +29,7 @@ import {
 } from '../../data/caseDetailsData';
 import { api, clearSavedToken } from '../../api/client';
 import { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
 
 interface CaseDetailWorkbenchProps {
   caseId: string;
@@ -287,8 +288,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   }
 
   const caseData = loadedCase;
-  const canReview = currentUser.roleLabel === '管理员' || currentUser.roleLabel === '审核员';
-  const canManage = currentUser.roleLabel === '管理员';
+  const canReview = hasPerm(currentUser.permissions, 'case.review');
+  const canManage = hasPerm(currentUser.permissions, 'case.delete');
   const isImageClue = caseData.clue.content_type === 'image';
 
   return (
@@ -1187,7 +1188,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
             {!canReview ? (
               <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
-                终审提交需要「审核员/管理员」角色,当前账号为「{currentUser.roleLabel}」,仅可查看审核记录。
+                终审提交需要「总编/工作室负责人/部长」角色,当前账号为「{currentUser.roleLabel}」,仅可查看审核记录。
               </div>
             ) : (
             <form onSubmit={handleSubmitReview} className="space-y-3.5 text-[12px]">

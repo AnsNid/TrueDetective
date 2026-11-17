@@ -14,11 +14,13 @@ import {
 import { api } from '../../api/client';
 import type { TaskItemApi, TasksPayload } from '../../api/client';
 import { LoadErrorBar, LoadingCards } from '../../api/hooks';
+import type { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
 
 interface TasksViewProps {
   onOpenNewClue?: () => void;
   onSelectTask?: (task: TaskItemApi) => void;
-  currentUserRole?: string;
+  currentUser?: AuthenticatedUser | null;
 }
 
 const PAGE_SIZE = 12;
@@ -26,7 +28,7 @@ const PAGE_SIZE = 12;
 export const TasksView: React.FC<TasksViewProps> = ({
   onOpenNewClue,
   onSelectTask,
-  currentUserRole = '管理员',
+  currentUser,
 }) => {
   const [filterTab, setFilterTab] = useState<'all' | 'ongoing' | 'closed' | 'high_priority'>('all');
   const [searchKey, setSearchKey] = useState('');
@@ -37,8 +39,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [payload, setPayload] = useState<TasksPayload | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  const canManage = currentUserRole === '管理员';
-  const canDeposit = currentUserRole === '管理员' || currentUserRole === '审核员';
+  const canManage = hasPerm(currentUser?.permissions, 'case.delete');
+  const canDeposit = hasPerm(currentUser?.permissions, 'case.review');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -363,7 +365,17 @@ export const TasksView: React.FC<TasksViewProps> = ({
                       {task.id}
                     </td>
                     <td className="py-3 px-3 min-w-[260px]">
-                      <div className="font-medium text-slate-800 line-clamp-1">{task.title}</div>
+                      <div className="flex items-center gap-1.5">
+                        {task.system === 'teaching' ? (
+                          <span
+                            title="教学体系任务"
+                            className="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-200"
+                          >
+                            教学
+                          </span>
+                        ) : null}
+                        <span className="font-medium text-slate-800 line-clamp-1">{task.title}</span>
+                      </div>
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">

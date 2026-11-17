@@ -12,6 +12,8 @@ import {
 import { api } from '../../api/client';
 import type { KnowledgeItemApi } from '../../api/client';
 import { useApiData, LoadErrorBar, LoadingCards } from '../../api/hooks';
+import type { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
 
 const CATEGORIES = ['全部条目', '核查规范', '核查方法', '信源分级', '典型案例'] as const;
 
@@ -25,7 +27,11 @@ interface KnowledgeFormState {
 
 const emptyForm: KnowledgeFormState = { title: '', category: '核查规范', content: '', keyRule: '' };
 
-export const KnowledgeView: React.FC = () => {
+interface KnowledgeViewProps {
+  currentUser?: AuthenticatedUser | null;
+}
+
+export const KnowledgeView: React.FC<KnowledgeViewProps> = ({ currentUser }) => {
   const [activeCategory, setActiveCategory] = useState<string>('全部条目');
   const [searchKey, setSearchKey] = useState('');
   const [detailModalItem, setDetailModalItem] = useState<KnowledgeItemApi | null>(null);
@@ -34,12 +40,11 @@ export const KnowledgeView: React.FC = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
-  // 后端知识库条目
-  const knowledgeQuery = useApiData<{ list: KnowledgeItemApi[]; role: string }>(() => api.knowledge());
+  // 后端知识库条目(权限以后端下发为准)
+  const knowledgeQuery = useApiData<{ list: KnowledgeItemApi[]; role?: string }>(() => api.knowledge());
   const allItems = knowledgeQuery.data?.list ?? [];
-  const myRole = knowledgeQuery.data?.role ?? '核查员';
-  const canEdit = myRole === '管理员' || myRole === '审核员';
-  const canDelete = myRole === '管理员';
+  const canEdit = hasPerm(currentUser?.permissions, 'knowledge.edit');
+  const canDelete = hasPerm(currentUser?.permissions, 'knowledge.delete');
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -265,12 +270,12 @@ export const KnowledgeView: React.FC = () => {
               className="w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-[#2563EB] hover:bg-blue-700 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed text-white text-[12px] font-medium cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              {canEdit ? '新建条目' : '新建(需审核员/管理员)'}
+              {canEdit ? '新建条目' : '新建(需总编/负责人/部长)'}
             </button>
             <p className="text-[10.5px] text-slate-400 leading-relaxed">
               {canEdit
-                ? '当前角色可新增与编辑条目;删除仅管理员可操作。'
-                : `当前角色「${myRole}」仅可浏览,新增/编辑需要审核员或管理员。`}
+                ? '当前角色可新增与编辑条目;删除仅总编/负责人可操作。'
+                : `当前角色「${currentUser?.roleLabel ?? '成员'}」仅可浏览,新增/编辑需要总编/负责人/部长。`}
             </p>
           </div>
         </div>

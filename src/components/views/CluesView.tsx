@@ -13,12 +13,15 @@ import {
   Upload,
 } from 'lucide-react';
 import { api } from '../../api/client';
+import type { AuthenticatedUser } from '../LoginPage';
+import { hasPerm } from '../../auth/permissions';
 
 interface CluesViewProps {
   onSuccessSubmit?: (caseId: string, caseTitle: string) => void;
+  currentUser?: AuthenticatedUser | null;
 }
 
-export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
+export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUser }) => {
   const [clueType, setClueType] = useState<'text' | 'image' | 'video' | 'audio'>('text');
   const [title, setTitle] = useState(
     '外媒称中国边境管控构成“系统性限制”，援引人权组织年度报告'
@@ -77,21 +80,30 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 负责人候选:取后端成员与实时负载;同时取提交人身份与最近案件(关联候选)
+  // 工作室体系:负责人候选取后端成员与实时负载;教学体系负责人固定为本人,不拉取成员列表
+  const canAssign = hasPerm(currentUser?.permissions, 'users.view');
   useEffect(() => {
-    api.users().then((res) => {
-      if (res.code === 200 && res.data?.list) {
-        const list = res.data.list.map((m: any) => ({ name: m.name, role: m.role, load: m.load ?? 0 }));
-        setMembers(list);
-        // 默认指派给在办最少的核查员
-        const verifiers = list.filter((m) => m.role === '核查员').sort((a, b) => a.load - b.load);
-        const pick = verifiers[0] ?? list[0];
-        if (pick) setAssignee(`${pick.name} · 当前 ${pick.load} 件在办`);
-      }
-    });
+    if (canAssign) {
+      api.users().then((res) => {
+        if (res.code === 200 && res.data?.list) {
+          const list = res.data.list.map((m: any) => ({
+            name: m.name,
+            role: m.roleLabel || m.role,
+            load: m.load ?? 0,
+          }));
+          setMembers(list);
+          // 默认指派给在办最少的成员
+          const verifiers = list
+            .filter((m) => m.role === '成员')
+            .sort((a, b) => a.load - b.load);
+          const pick = verifiers[0] ?? list[0];
+          if (pick) setAssignee(`${pick.name} · 当前 ${pick.load} 件在办`);
+        }
+      });
+    }
     api.getUserInfo().then((res) => {
       if (res.code === 200 && res.data) {
-        setSubmitterLabel(`${res.data.nickname || res.data.username} (${res.data.roleLabel || '核查员'})`);
+        setSubmitterLabel(`${res.data.nickname || res.data.username} (${res.data.roleLabel || '成员'})`);
       }
     });
     api.tasks({ pageSize: 10 }).then((res) => {
@@ -569,6 +581,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
                   <option value="低">低</option>
                 </select>
               </div>
+              {canAssign ? (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   指派核查员 <span className="text-slate-400 font-normal">附实时在办负载</span>
@@ -586,6 +599,16 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit }) => {
                   ))}
                 </select>
               </div>
+              ) : (
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                  任务负责人 <span className="text-slate-400 font-normal">教学实训</span>
+                </label>
+                <div className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-[11.5px]">
+                  自动指派给本人(教学体系任务)
+                </div>
+              </div>
+              )}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
                   关联案件 <span className="text-slate-400 font-normal">可留空</span>

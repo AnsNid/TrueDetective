@@ -91,13 +91,13 @@ export interface LoginValidationResult {
 export function validateLoginCredentials(
   username: string,
   password: string,
-  roleLabel: string = '管理员'
+  roleLabel: string = '成员'
 ): LoginValidationResult {
   const cleanUser = username.trim();
   const cleanPass = password.trim();
 
   if (!cleanUser) {
-    return { valid: false, error: '请输入管理员账号、工号或邮箱' };
+    return { valid: false, error: '请输入账号、学号/工号或邮箱' };
   }
   if (!cleanPass) {
     return { valid: false, error: '请输入登录密码' };
@@ -115,7 +115,7 @@ export function validateLoginCredentials(
   return {
     valid: true,
     displayName,
-    roleLabel: roleLabel.trim() || '管理员',
+    roleLabel: roleLabel.trim() || '成员',
   };
 }
 
