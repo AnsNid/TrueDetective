@@ -4,7 +4,10 @@ import { Row3CasesAndCharts } from '../Row3CasesAndCharts';
 import { Row4TrendsAndHeatmap } from '../Row4TrendsAndHeatmap';
 import { AuthenticatedUser } from '../LoginPage';
 import { LoadErrorBar } from '../../api/hooks';
-import type { DashboardPayload } from '../../api/client';
+import type {
+  DashboardOverviewPayload,
+  DashboardChartsPayload,
+} from '../../api/client';
 import {
   OngoingCaseItem,
   PendingReviewItem,
@@ -12,7 +15,8 @@ import {
 } from '../../data/dashboardData';
 
 interface WorkbenchViewProps {
-  metrics: TimeRangeMetrics;
+  /** KPI 指标;未就绪为 null(骨架占位,不使用本地默认数据) */
+  metrics: TimeRangeMetrics | null;
   pendingReviews: PendingReviewItem[];
   onSelectReview: (item: PendingReviewItem) => void;
   onViewAllReviews: () => void;
@@ -20,10 +24,32 @@ interface WorkbenchViewProps {
   onSelectCase: (item: OngoingCaseItem) => void;
   onViewAllCases: () => void;
   currentUser: AuthenticatedUser;
-  dashboard: DashboardPayload | null;
-  dashboardLoading: boolean;
-  dashboardError: string | null;
+  /** 列表区(待审核/进行中案件);未就绪为 null */
+  overview: DashboardOverviewPayload | null;
+  /** 图表区(漏斗/雷达/分布/趋势/热力图);未就绪为 null */
+  charts: DashboardChartsPayload | null;
+  /** 三个分区接口任一仍在加载 */
+  sectionLoading: boolean;
+  /** 分区接口的错误信息(已就绪区块照常展示) */
+  sectionErrors: string[];
   onReloadDashboard: () => void;
+}
+
+/** 区块骨架:n 张卡占位 */
+function SkeletonCards({ n, height }: { n: number; height: string }) {
+  return (
+    <>
+      {Array.from({ length: n }).map((_, i) => (
+        <div
+          key={i}
+          className="bg-white border border-slate-200/90 rounded-xl shadow-xs animate-pulse p-5 space-y-3"
+        >
+          <div className="h-3.5 w-28 bg-slate-100 rounded" />
+          <div className={`${height} w-full bg-slate-50 rounded-lg`} />
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function WorkbenchView({
@@ -35,9 +61,10 @@ export function WorkbenchView({
   onSelectCase,
   onViewAllCases,
   currentUser,
-  dashboard,
-  dashboardLoading,
-  dashboardError,
+  overview,
+  charts,
+  sectionLoading,
+  sectionErrors,
   onReloadDashboard,
 }: WorkbenchViewProps) {
   const now = new Date();
@@ -66,44 +93,71 @@ export function WorkbenchView({
         </div>
       </div>
 
-      {/* 后端数据加载异常提示(保留页面其余区块) */}
-      {dashboardError && !dashboardLoading ? (
-        <LoadErrorBar message={`工作台数据加载失败:${dashboardError}`} onRetry={onReloadDashboard} />
+      {/* 分区加载失败提示(已就绪区块照常展示) */}
+      {sectionErrors.length > 0 && !sectionLoading ? (
+        <LoadErrorBar
+          message={`部分工作台数据加载失败:${sectionErrors.join('；')}`}
+          onRetry={onReloadDashboard}
+        />
       ) : null}
 
       {/* Row 1: Cumulative Clues + 2x2 KPIs + Pending Manual Reviews */}
-      <Row1Overview
-        metrics={metrics}
-        pendingReviews={pendingReviews}
-        onSelectReview={onSelectReview}
-        onViewAllReviews={onViewAllReviews}
-        weeklyClues={dashboard?.weeklyTrends?.clues}
-        weeklyLabels={dashboard?.weeklyTrends?.labels}
-      />
+      {metrics && overview ? (
+        <Row1Overview
+          metrics={metrics}
+          pendingReviews={pendingReviews}
+          onSelectReview={onSelectReview}
+          onViewAllReviews={onViewAllReviews}
+          weeklyClues={charts?.weeklyTrends?.clues}
+          weeklyLabels={charts?.weeklyTrends?.labels}
+        />
+      ) : (
+        <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
+          <SkeletonCards n={4} height="h-16" />
+        </div>
+      )}
 
       {/* Row 2: 9-Step Funnel + Source Credibility Radar */}
-      <Row2FunnelAndCredibility
-        funnelSteps={dashboard?.funnelSteps}
-        credibilityAxes={dashboard?.credibilityAxes}
-        credibilityTiers={dashboard?.credibilityTiers}
-      />
+      {charts ? (
+        <Row2FunnelAndCredibility
+          funnelSteps={charts.funnelSteps}
+          credibilityAxes={charts.credibilityAxes}
+          credibilityTiers={charts.credibilityTiers}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <SkeletonCards n={2} height="h-[260px]" />
+        </div>
+      )}
 
       {/* Row 3: Conclusion Distribution + Ongoing Cases + Image Authenticity */}
-      <Row3CasesAndCharts
-        ongoingCases={ongoingCases}
-        onSelectCase={onSelectCase}
-        onViewAllCases={onViewAllCases}
-        conclusionDistribution={dashboard?.conclusionDistribution}
-        imageAuthSegments={dashboard?.imageAuthSegments}
-        imageClueCount={dashboard?.imageClueCount}
-      />
+      {charts && overview ? (
+        <Row3CasesAndCharts
+          ongoingCases={ongoingCases}
+          onSelectCase={onSelectCase}
+          onViewAllCases={onViewAllCases}
+          conclusionDistribution={charts.conclusionDistribution}
+          imageAuthSegments={charts.imageAuthSegments}
+          imageClueCount={charts.imageClueCount}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <SkeletonCards n={3} height="h-[200px]" />
+        </div>
+      )}
 
       {/* Row 4: 12-Week Trend Chart + 24x7 Submission Heatmap */}
-      <Row4TrendsAndHeatmap
-        weeklyTrends={dashboard?.weeklyTrends}
-        heatmapDays={dashboard?.heatmap?.days}
-        heatmapMatrix={dashboard?.heatmap?.matrix}
-      />
+      {charts ? (
+        <Row4TrendsAndHeatmap
+          weeklyTrends={charts.weeklyTrends}
+          heatmapDays={charts.heatmap?.days}
+          heatmapMatrix={charts.heatmap?.matrix}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <SkeletonCards n={2} height="h-[240px]" />
+        </div>
+      )}
     </>
   );
 }

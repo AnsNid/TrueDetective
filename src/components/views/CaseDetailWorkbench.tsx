@@ -214,10 +214,74 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     triggerToast('已复制到剪贴板');
   };
 
-  // Print/Export PDF
-  const handleExportPdf = () => {
-    triggerToast('已生成核查简报 PDF，正在调用打印/导出...');
-    window.print();
+  // ===== 报告导出(PDF / Word,后端文件流) =====
+  const [exporting, setExporting] = useState<'' | 'pdf' | 'docx'>('');
+  const handleExport = async (format: 'pdf' | 'docx') => {
+    if (exporting) return;
+    setExporting(format);
+    try {
+      const ok = await api.exportReport(caseId, format);
+      triggerToast(ok ? `已导出${format === 'pdf' ? ' PDF' : ' Word'}版核查报告` : '导出失败,请稍后重试');
+    } finally {
+      setExporting('');
+    }
+  };
+
+  // ===== 报告人工编辑(驳回修改中 / 未进入审核时) =====
+  const [reportEditing, setReportEditing] = useState(false);
+  const [savingReport, setSavingReport] = useState(false);
+  const [submittingReport, setSubmittingReport] = useState(false);
+  const [reportDraft, setReportDraft] = useState({
+    preliminary_conclusion: '',
+    summary: '',
+    conclusion: '',
+    confidence: '',
+  });
+
+  const openReportEditor = () => {
+    if (!caseData.report) return;
+    setReportDraft({
+      preliminary_conclusion: caseData.report.preliminary_conclusion,
+      summary: caseData.report.summary,
+      conclusion: caseData.report.conclusion,
+      confidence: caseData.report.confidence,
+    });
+    setReportEditing(true);
+  };
+
+  const handleSaveReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (savingReport) return;
+    setSavingReport(true);
+    try {
+      const res = await api.updateReport(caseId, reportDraft);
+      if (res.code === 200 && res.data?.detail) {
+        setLoadedCase(res.data.detail);
+        setReportEditing(false);
+        triggerToast('报告已保存');
+      } else {
+        triggerToast(res.message || '保存失败');
+      }
+    } finally {
+      setSavingReport(false);
+    }
+  };
+
+  /** 报告修改完成 -> 重新提交人工审核(工作室案件从头逐级重审) */
+  const handleSubmitReport = async () => {
+    if (submittingReport) return;
+    setSubmittingReport(true);
+    try {
+      const res = await api.submitReport(caseId);
+      if (res.code === 200 && res.data?.detail) {
+        setLoadedCase(res.data.detail);
+        triggerToast('已重新提交人工审核,从「成员」级重新逐级审核');
+      } else {
+        triggerToast(res.message || '提交失败');
+      }
+    } finally {
+      setSubmittingReport(false);
+    }
   };
 
   // 沉淀为教学案例(已结案)
@@ -288,9 +352,25 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   }
 
   const caseData = loadedCase;
-  const canReview = hasPerm(currentUser.permissions, 'case.review');
+  // 四级审核流:当前账号级别(工作室 1-4;教学/未知 0)
+  const myReviewLevel =
+    { member: 1, minister: 2, studio_lead: 3, super_admin: 4 }[currentUser.role ?? ''] ?? 0;
+  const isStudioCase = (caseData.system ?? 'studio') === 'studio';
+  const currentReviewLevel = caseData.review_level ?? 1;
+  const isSuper = currentUser.role === 'super_admin';
+  // 可执行当前审核:有审核权限 && 未结案 && 非驳回修改中 && (教学单级 || 级别匹配 || 超管越级)
+  const canReview =
+    hasPerm(currentUser.permissions, 'case.review') &&
+    caseData.status !== 'done' &&
+    caseData.report_editing !== true &&
+    (!isStudioCase || isSuper || myReviewLevel === currentReviewLevel);
   const canManage = hasPerm(currentUser.permissions, 'case.delete');
   const isImageClue = caseData.clue.content_type === 'image';
+  const lastReturnedReview = (caseData.reviews ?? []).find((r) => r.action === 'returned');
+  const canEditReport =
+    !!caseData.report &&
+    caseData.status !== 'done' &&
+    (caseData.report_editing === true || (caseData.reviews ?? []).length === 0);
 
   return (
     <div className="space-y-4 pb-12">
@@ -361,15 +441,29 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             一键自动核查 (环节 2-8)
           </button>
 
-          <button
-            onClick={handleExportPdf}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg text-[12px] font-medium transition-colors cursor-pointer"
-          >
-            <FileDown className="w-3.5 h-3.5 text-slate-500" />
-            导出报告 (PDF)
-          </button>
+          {/* 报告导出: PDF / Word 双版本(报告已生成即可导出) */}
+          {caseData.report && (
+            <>
+              <button
+                onClick={() => handleExport('pdf')}
+                disabled={exporting !== ''}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <FileDown className={`w-3.5 h-3.5 text-slate-500 ${exporting === 'pdf' ? 'animate-pulse' : ''}`} />
+                {exporting === 'pdf' ? '导出中…' : '导出 PDF'}
+              </button>
+              <button
+                onClick={() => handleExport('docx')}
+                disabled={exporting !== ''}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 rounded-lg text-[12px] font-medium transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+              >
+                <FileDown className={`w-3.5 h-3.5 text-slate-500 ${exporting === 'docx' ? 'animate-pulse' : ''}`} />
+                {exporting === 'docx' ? '导出中…' : '导出 Word'}
+              </button>
+            </>
+          )}
 
-          {caseData.status === 'done' && canReview && (
+          {caseData.status === 'done' && hasPerm(currentUser.permissions, 'case.review') && (
             <button
               onClick={handleDeposit}
               className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-colors cursor-pointer"
@@ -1061,15 +1155,119 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                   <h2 className="text-[13px] font-bold text-[#0F172A]">
                     环节 8 · 智能事实核查报告
                   </h2>
+                  {caseData.report_editing ? (
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-200">
+                      驳回 · 报告修改中
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2 text-[11px]">
                   <span className="px-2 py-0.5 rounded font-bold bg-amber-50 text-amber-700 border border-amber-200">
                     初步结论: {caseData.report.conclusion}
                   </span>
                   <span className="text-slate-400">置信度: {caseData.report.confidence}</span>
+                  {!reportEditing && (
+                    <button
+                      type="button"
+                      onClick={openReportEditor}
+                      disabled={!canEditReport}
+                      title={canEditReport ? '人工修改 AI 生成文本' : '报告已进入审核流程,编辑需先由审核人驳回'}
+                      className="px-2 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-600 font-semibold hover:bg-blue-100 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      编辑报告
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* 驳回提示: 最近一条驳回意见 + 重新提交入口 */}
+              {caseData.report_editing === true && (
+                <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 space-y-2">
+                  <div className="text-[11.5px] text-rose-700 leading-relaxed">
+                    <b>{lastReturnedReview ? `${lastReturnedReview.reviewer}(${lastReturnedReview.levelLabel ?? '终审'})驳回: ` : '审核驳回: '}</b>
+                    {lastReturnedReview?.comment ?? '请修改报告后重新提交。'}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSubmitReport}
+                      disabled={submittingReport}
+                      className="px-3 py-1 rounded bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-[11.5px] transition-colors cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {submittingReport ? '提交中…' : '修改完成,重新提交人工审核'}
+                    </button>
+                    <span className="text-[10.5px] text-rose-400">
+                      重新提交后{isStudioCase ? '将从「成员」级从头逐级重审' : '将重新进入终审'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {reportEditing ? (
+                <form onSubmit={handleSaveReport} className="space-y-3 text-[12px]">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">结论</label>
+                      <select
+                        value={reportDraft.conclusion}
+                        onChange={(e) => setReportDraft({ ...reportDraft, conclusion: e.target.value })}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {['真实', '基本真实', '缺乏语境', '误导', '基本错误', '虚假', '尚待核实', '无法核查', '疑似AI生成', '无法判断'].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">置信度</label>
+                      <select
+                        value={reportDraft.confidence}
+                        onChange={(e) => setReportDraft({ ...reportDraft, confidence: e.target.value })}
+                        className="w-full px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      >
+                        {['高', '较高', '中', '低'].map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">核查综述</label>
+                    <textarea
+                      rows={4}
+                      value={reportDraft.summary}
+                      onChange={(e) => setReportDraft({ ...reportDraft, summary: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-700 mb-1">判定依据</label>
+                    <textarea
+                      rows={3}
+                      value={reportDraft.preliminary_conclusion}
+                      onChange={(e) => setReportDraft({ ...reportDraft, preliminary_conclusion: e.target.value })}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setReportEditing(false)}
+                      className="px-3 py-1 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 text-[11.5px] cursor-pointer"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingReport}
+                      className="px-3 py-1 bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg text-[11.5px] cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      {savingReport ? '保存中…' : '保存修改'}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+              <div>
               {/* Preliminary Conclusion Banner */}
               <div className="p-3.5 bg-blue-50/50 rounded-xl border border-blue-100 text-[12px] leading-relaxed text-slate-800 space-y-1.5">
                 <div className="font-bold text-[#2563EB] flex items-center gap-1.5 text-[12.5px]">
@@ -1082,6 +1280,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                   {caseData.report.preliminary_conclusion}
                 </div>
               </div>
+              </div>
+              )}
 
               {/* Evidence Gaps & Pending Items */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11.5px]">
@@ -1172,24 +1372,77 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             )}
           </div>
 
-          {/* Card: 人工审核（环节 9 · 终审定论） */}
+          {/* Card: 人工审核（环节 9 · 四级串行审核流） */}
           <div className="bg-white border-2 border-blue-500/30 rounded-xl p-4 sm:p-5 shadow-xs space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
               <div className="flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse"></span>
                 <h3 className="text-[13px] font-bold text-[#0F172A]">
-                  环节 9 · 人工审核与结案
+                  环节 9 · 人工审核
                 </h3>
               </div>
               <span className="text-[11px] text-blue-600 font-semibold">
-                {caseData.status === 'done' ? '✓ 已结案归档' : '待审核终审'}
+                {caseData.status === 'done'
+                  ? '✓ 已结案归档'
+                  : caseData.report_editing
+                  ? '报告修改中'
+                  : caseData.review_level_label ?? '待审核'}
               </span>
             </div>
 
-            {!canReview ? (
-              <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
-                终审提交需要「总编/工作室负责人/部长」角色,当前账号为「{currentUser.roleLabel}」,仅可查看审核记录。
+            {/* 四级审核进度: 成员 → 部长 → 负责人 → 超管(教学案件单级终审) */}
+            {isStudioCase ? (
+              <div className="flex items-center gap-1">
+                {[1, 2, 3, 4].map((lv) => {
+                  const labels = ['', '成员', '部长', '负责人', '超管'] as const;
+                  const done = caseData.status === 'done' || lv < currentReviewLevel;
+                  const active = caseData.status !== 'done' && !caseData.report_editing && lv === currentReviewLevel;
+                  return (
+                    <div key={lv} className="flex-1 flex items-center gap-1">
+                      <div
+                        className={`flex-1 flex items-center justify-center gap-1 py-1 rounded text-[10.5px] font-bold border ${
+                          done
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                            : active
+                            ? 'bg-blue-50 border-blue-300 text-blue-700'
+                            : 'bg-slate-50 border-slate-200 text-slate-400'
+                        }`}
+                      >
+                        {done ? '✓' : active ? '●' : lv}
+                        {labels[lv]}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            ) : (
+              <div className="text-[11px] text-indigo-600 bg-indigo-50 border border-indigo-100 rounded-lg px-2.5 py-1.5">
+                教学实训案件 · 单级终审
+              </div>
+            )}
+
+            {/* 驳回修改中提示 */}
+            {caseData.report_editing === true && caseData.status !== 'done' && (
+              <div className="py-2 px-3 rounded-lg bg-rose-50 border border-rose-200 text-[11.5px] text-rose-600 text-center">
+                报告被驳回修改中 —— 请在「环节 8 · 报告」修改并重新提交后继续审核。
+              </div>
+            )}
+
+            {!canReview ? (
+              caseData.status === 'done' ? (
+                <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
+                  案件已结案,审核流程完成。
+                </div>
+              ) : !hasPerm(currentUser.permissions, 'case.review') ? (
+                <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
+                  审核需工作室体系账号,当前账号为「{currentUser.roleLabel}」,仅可查看审核记录。
+                </div>
+              ) : (
+                <div className="py-3 px-3 rounded-lg bg-slate-50 border border-slate-200 text-[12px] text-slate-500 text-center">
+                  当前待「{isStudioCase ? ['', '成员', '部长', '工作室负责人', '超级管理员/总编'][currentReviewLevel] : '终审'}」审核
+                  {isStudioCase && myReviewLevel !== currentReviewLevel ? `,您的审核级别(「${currentUser.roleLabel}」)不匹配${isSuper ? '(可越级,但当前状态不可审)' : ''}` : ''}。
+                </div>
+              )
             ) : (
             <form onSubmit={handleSubmitReview} className="space-y-3.5 text-[12px]">
               <div>
@@ -1218,7 +1471,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    通过并结案
+                    {isStudioCase && currentReviewLevel < 4 ? '审核通过(流转下一级)' : '终审通过并结案'}
                   </button>
                   <button
                     type="button"
@@ -1229,7 +1482,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                         : 'border-slate-200 text-slate-600 hover:bg-slate-50'
                     }`}
                   >
-                    修改后通过
+                    修正结论后通过
                   </button>
                   <button
                     type="button"
@@ -1328,7 +1581,11 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                 disabled={submittingReview}
                 className="w-full py-2 bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-lg text-[12px] shadow-sm transition-colors cursor-pointer disabled:cursor-not-allowed"
               >
-                {submittingReview ? '正在提交审核…' : '提交终审意见并更新案件'}
+                {submittingReview
+                  ? '正在提交审核…'
+                  : isStudioCase && currentReviewLevel < 4
+                  ? `提交「${['', '成员', '部长', '工作室负责人', '超级管理员/总编'][currentReviewLevel]}」审核意见`
+                  : '提交终审意见并结案'}
               </button>
             </form>
             )}
@@ -1345,18 +1602,31 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                   {caseData.reviews.map((rev) => (
                     <div
                       key={rev.id}
-                      className="p-2.5 bg-slate-50 rounded-lg border border-slate-200/80 text-[11px] space-y-1"
+                      className={`p-2.5 rounded-lg border text-[11px] space-y-1 ${
+                        rev.action === 'returned'
+                          ? 'bg-rose-50 border-rose-200/80'
+                          : 'bg-slate-50 border-slate-200/80'
+                      }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-slate-800">{rev.reviewer}</span>
+                        <span className="font-bold text-slate-800">
+                          {rev.reviewer}
+                          {rev.level && rev.level > 0 ? (
+                            <span className="ml-1.5 px-1 py-0.5 rounded text-[9.5px] font-bold bg-blue-50 text-blue-600 border border-blue-100">
+                              {rev.levelLabel ?? `L${rev.level}`}
+                            </span>
+                          ) : null}
+                        </span>
                         <span
                           className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
                             rev.action === 'approved'
                               ? 'bg-emerald-100 text-emerald-800'
+                              : rev.action === 'returned'
+                              ? 'bg-rose-100 text-rose-700'
                               : 'bg-blue-100 text-blue-800'
                           }`}
                         >
-                          {rev.action === 'approved' ? '审核通过' : '修改意见'}
+                          {rev.action === 'approved' ? '审核通过' : rev.action === 'returned' ? '驳回' : '修正通过'}
                         </span>
                       </div>
                       <p className="text-slate-600 text-[10.5px] leading-snug">{rev.comment}</p>

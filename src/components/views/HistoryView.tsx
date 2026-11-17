@@ -274,49 +274,6 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               </div>
             </div>
           ))}
-
-          {/* Special 8th Card: 教学沉淀 */}
-          <div className="bg-white border border-blue-200 rounded-xl p-3.5 shadow-xs flex flex-col justify-between space-y-2.5">
-            <div>
-              <div className="flex items-center justify-between">
-                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
-                  教学沉淀
-                </span>
-                <span className="text-[10px] text-slate-400">已引用 34 次</span>
-              </div>
-              <h3 className="text-[12px] font-bold text-slate-900 mt-1">
-                案例: 旧图新用类谣言
-              </h3>
-              <p className="text-[11px] text-slate-500 mt-1.5 line-clamp-2 leading-relaxed">
-                某外媒将数年前旧照片配文为近期事件。反向识图比对最早发布时间后判定“虚假”，并附原始出处时间线，作为「旧图新用识别」的标准教学样例。
-              </p>
-              <div className="text-[10px] text-slate-400 mt-1">
-                教学用法: 事实层与定性层分离 / 关联案件 ZT-2026-0001
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  className="px-2 py-0.5 rounded bg-blue-50 text-blue-600 hover:bg-blue-100 text-[10.5px] font-medium transition-colors cursor-pointer"
-                >
-                  引用到培训
-                </button>
-                <button
-                  type="button"
-                  className="text-[10.5px] text-slate-500 hover:text-slate-800 transition-colors cursor-pointer"
-                >
-                  查看全文
-                </button>
-              </div>
-
-              <div className="flex items-center justify-between text-[11px] pt-2 border-t border-slate-50 text-slate-400">
-                <span>沉淀 2026-09-28</span>
-                <span className="text-slate-500 font-medium">归入「核查方法」</span>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Right 4 Cols: Analytics Sidebar */}

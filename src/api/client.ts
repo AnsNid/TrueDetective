@@ -129,8 +129,22 @@ export interface SiteConfig {
 
 export type StageMethod = 'llm' | 'search' | 'rule' | 'template' | 'skip' | 'unavailable' | 'pending' | 'review';
 
-export interface DashboardPayload {
+/* 工作台按区块拆分的三个并行接口载荷(原单一 /dashboard 已移除) */
+
+/** KPI 指标区(随时间区间变化) */
+export interface DashboardMetricsPayload {
   metrics: import('../data/dashboardData').TimeRangeMetrics;
+}
+
+/** 列表区:待人工审核 + 进行中案件 */
+export interface DashboardOverviewPayload {
+  pendingReviews: import('../data/dashboardData').PendingReviewItem[];
+  pendingCount: number;
+  ongoingCases: import('../data/dashboardData').OngoingCaseItem[];
+}
+
+/** 图表区:漏斗/信源雷达/结论分布/图片判定/周趋势/热力图 */
+export interface DashboardChartsPayload {
   funnelSteps: import('../data/dashboardData').FunnelStep[];
   credibilityAxes: { label: string; value: number }[];
   credibilityTiers: { label: string; percentage: number; color: string }[];
@@ -139,11 +153,6 @@ export interface DashboardPayload {
   imageClueCount: number;
   weeklyTrends: { labels: string[]; clues: number[]; closed: number[] };
   heatmap: { days: string[]; matrix: number[][] };
-  reviewChecklist: string[];
-  ai: { llm: boolean; search: boolean };
-  pendingReviews: import('../data/dashboardData').PendingReviewItem[];
-  pendingCount: number;
-  ongoingCases: import('../data/dashboardData').OngoingCaseItem[];
 }
 
 export interface TaskItemApi {
@@ -292,8 +301,15 @@ export const api = {
       }
     ),
 
-  dashboard: (range: string) =>
-    apiRequest<DashboardPayload>(`/dashboard?range=${encodeURIComponent(range)}`),
+  dashboardMetrics: (range: string) =>
+    apiRequest<DashboardMetricsPayload>(
+      `/dashboardMetrics?range=${encodeURIComponent(range)}`
+    ),
+
+  dashboardOverview: () =>
+    apiRequest<DashboardOverviewPayload>('/dashboardOverview'),
+
+  dashboardCharts: () => apiRequest<DashboardChartsPayload>('/dashboardCharts'),
 
   statistics: () => apiRequest<StatisticsPayload>('/statistics'),
 
@@ -334,6 +350,43 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  /** 编辑核查报告(AI 生成文本人工修改;驳回修改中或未进入审核时可编辑) */
+  updateReport: (caseNo: string, payload: Record<string, any>) =>
+    apiRequest<{ detail: any }>(`/cases/${encodeURIComponent(caseNo)}/report`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+
+  /** 报告修改完成后重新提交人工审核 */
+  submitReport: (caseNo: string) =>
+    apiRequest<{ detail: any }>(`/cases/${encodeURIComponent(caseNo)}/submitReport`, {
+      method: 'POST',
+    }),
+
+  /** 导出核查报告文件(pdf/docx),带鉴权头下载 blob 并触发保存 */
+  exportReport: async (caseNo: string, format: 'pdf' | 'docx'): Promise<boolean> => {
+    const token = getSavedToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['x-token'] = `Bearer ${token}`;
+    try {
+      const res = await fetch(
+        `${BASE_URI}/cases/${encodeURIComponent(caseNo)}/export?format=${format}`,
+        { headers }
+      );
+      if (!res.ok) return false;
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${caseNo}-核查报告.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  },
 
   depositCase: (caseNo: string) =>
     apiRequest<{ id: number; caseNo: string }>(`/cases/${encodeURIComponent(caseNo)}/deposit`, {

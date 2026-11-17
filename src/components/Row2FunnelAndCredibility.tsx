@@ -2,7 +2,6 @@ import React from 'react';
 import {
   FUNNEL_STEPS,
   SOURCE_CREDIBILITY_AXES,
-  SOURCE_CREDIBILITY_TIERS,
 } from '../data/dashboardData';
 import { computeRadarPolygonPoints } from '../utils/dashboardLogic';
 
@@ -12,10 +11,11 @@ interface Row2Props {
   credibilityTiers?: { label: string; percentage: number; color: string; textClass?: string }[];
 }
 
+// 数据一律来自后端;未传入时按空数据处理,不回退本地演示数据
 export const Row2FunnelAndCredibility: React.FC<Row2Props> = ({
-  funnelSteps = FUNNEL_STEPS,
-  credibilityAxes = SOURCE_CREDIBILITY_AXES,
-  credibilityTiers = SOURCE_CREDIBILITY_TIERS,
+  funnelSteps = [],
+  credibilityAxes = [],
+  credibilityTiers = [],
 }) => {
   const centerX = 135;
   const centerY = 92;

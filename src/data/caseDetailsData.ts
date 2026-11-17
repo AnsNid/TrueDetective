@@ -51,6 +51,9 @@ export interface RunningLogEntry {
 export interface ReviewRecord {
   id: number;
   reviewer: string;
+  /** 审核级别: 0=教学/历史, 1-4 工作室四级流(成员/部长/负责人/超管) */
+  level?: number;
+  levelLabel?: string;
   action: 'approved' | 'revised' | 'returned';
   comment: string;
   check_items: string[];
@@ -66,6 +69,13 @@ export interface FullCaseDetail {
   stage_name: string;
   priority: '高' | '中' | '低';
   assignee: string;
+  /** 所属体系: studio=工作室(四级审核流) / teaching=教学(单级终审) */
+  system?: 'studio' | 'teaching';
+  /** 当前待审级别 1-4(仅工作室) */
+  review_level?: number;
+  review_level_label?: string;
+  /** 驳回后报告修改中(重新提交后才可继续审核) */
+  report_editing?: boolean;
   final_conclusion: string;
   created_at?: string;
   screening_result: {

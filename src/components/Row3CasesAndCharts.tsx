@@ -14,12 +14,13 @@ interface Row3CasesAndChartsProps {
   imageClueCount?: number;
 }
 
+// 数据一律来自后端;未传入时按空数据处理,不回退本地演示数据
 export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
   ongoingCases,
   onSelectCase,
   onViewAllCases,
-  conclusionDistribution = CONCLUSION_DISTRIBUTION,
-  imageAuthSegments = IMAGE_AUTH_SEGMENTS,
+  conclusionDistribution = [],
+  imageAuthSegments = [],
   imageClueCount,
 }) => {
   const maxBarVal = Math.max(...conclusionDistribution.map((d) => d.value), 1);

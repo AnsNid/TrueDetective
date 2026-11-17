@@ -1,9 +1,5 @@
 import React, { useState } from 'react';
-import {
-  HEATMAP_COLORS,
-  HEATMAP_DAYS,
-  HEATMAP_MATRIX,
-} from '../data/dashboardData';
+import { HEATMAP_COLORS } from '../data/dashboardData';
 import { getHeatmapColor } from '../utils/dashboardLogic';
 import { useElementWidth } from '../utils/useElementWidth';
 
@@ -21,19 +17,20 @@ interface Row4Props {
   heatmapMatrix?: number[][];
 }
 
-/** 由后端 12 周序列构建图表数据点,标签回退为最近 12 周日期 */
+/** 由后端 12 周序列构建图表数据点;后端未提供时返回空(无本地演示数据兜底) */
 function buildWeeklyData(trends?: {
   labels?: string[];
   clues: number[];
   closed: number[];
 }): WeeklyTrendPoint[] {
-  const clues = trends?.clues?.length ? trends.clues : [800, 900, 830, 1010, 1120, 1160, 1080, 1270, 1340, 1390, 1490, 1630];
-  const closed = trends?.closed?.length
-    ? trends.closed
-    : [380, 410, 450, 490, 530, 570, 530, 670, 720, 750, 800, 870];
+  if (!trends?.clues?.length) {
+    return [];
+  }
+  const clues = trends.clues;
+  const closed = trends.closed ?? [];
   const count = clues.length;
   // 日期标签: 以后端提供的为准; 若是 W1/W2 这类占位则按最近 12 周推算
-  const rawLabels = trends?.labels?.length ? trends.labels : [];
+  const rawLabels = trends.labels?.length ? trends.labels : [];
   const dateLabels = rawLabels.length
     ? rawLabels
     : Array.from({ length: count }, (_, i) => {
@@ -59,10 +56,11 @@ function buildWeeklyData(trends?: {
   }));
 }
 
+// 数据一律来自后端;未传入时按空数据处理,不回退本地演示数据
 export const Row4TrendsAndHeatmap: React.FC<Row4Props> = ({
   weeklyTrends,
-  heatmapDays = HEATMAP_DAYS,
-  heatmapMatrix = HEATMAP_MATRIX,
+  heatmapDays = [],
+  heatmapMatrix = [],
 }) => {
   const [hoveredCell, setHoveredCell] = useState<{
     day: string;

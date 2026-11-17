@@ -714,7 +714,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   { op: '新建任务/推进环节', p: [true, true, true, true, true, true] },
                   { op: '工作台/证据库/知识库', p: [true, true, true, true, false, false] },
                   { op: '数据统计看板', p: [true, true, true, false, false, false] },
-                  { op: '人工审核/案例沉淀', p: [true, true, true, false, false, false] },
+                  { op: '人工审核(分级①)/案例沉淀', p: [true, true, true, true, false, false] },
                   { op: '知识库编辑', p: [true, true, true, false, false, false] },
                   { op: '删除案件/知识库', p: [true, true, false, false, false, false] },
                   { op: '用户管理/导入学生', p: [true, true, false, false, false, false] },
@@ -735,7 +735,8 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
               </tbody>
             </table>
             <p className="text-[10px] text-slate-400 leading-relaxed">
-              数据可见范围:总编=双体系全部;负责人/部长/成员=工作室任务;老师=教学任务;学生=仅本人新建。两套体系数据互不可见(总编除外)。
+              人工审核为四级串行流:成员①→部长②→负责人③→超管④,驳回回退报告修改后从头重审(①表示成员仅审一级)。
+              数据可见范围:总编=双体系全部;负责人/部长/成员=工作室任务;老师=教学任务;学生=仅本人新建。
             </p>
           </div>
         </div>

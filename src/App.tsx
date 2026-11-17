@@ -20,7 +20,11 @@ import { ScrollToTop } from './components/ScrollToTop';
 import { LoginPage, AuthenticatedUser } from './components/LoginPage';
 import { api, getSavedToken, setSavedToken, clearSavedToken } from './api/client';
 import { useApiData } from './api/hooks';
-import type { DashboardPayload } from './api/client';
+import type {
+  DashboardMetricsPayload,
+  DashboardOverviewPayload,
+  DashboardChartsPayload,
+} from './api/client';
 import { hasPerm, Permission } from './auth/permissions';
 
 // Route-level code splitting: each view loads on demand via its own chunk.
@@ -65,7 +69,7 @@ const CaseDetailWorkbench = lazy(() =>
     default: m.CaseDetailWorkbench,
   }))
 );
-import { METRICS_BY_TIME_RANGE, TimeRangeKey } from './data/dashboardData';
+import { TimeRangeKey } from './data/dashboardData';
 import {
   filterOngoingCases,
   filterPendingReviews,
@@ -125,16 +129,28 @@ function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // 工作台聚合数据(仪表盘 KPI / 漏斗 / 待审核 / 进行中案件)
-  // 教学体系无工作台权限时不发起请求,直接置空走本地兜底
+  // 工作台数据按区块拆分三路并行请求(KPI / 列表 / 图表),
+  // 教学体系无工作台权限时不发起请求,直接置空由骨架占位
   const canDashboard = hasPerm(currentUser.permissions, 'dashboard.view');
-  const dashboard = useApiData<DashboardPayload>(
-    () =>
-      canDashboard
-        ? api.dashboard(activeTimeRange)
-        : Promise.resolve({ code: 200, message: 'success', data: null as unknown as DashboardPayload }),
+  const emptyResolved = <T,>() =>
+    Promise.resolve({ code: 200, message: 'success', data: null as unknown as T });
+  const metricsQ = useApiData<DashboardMetricsPayload>(
+    () => (canDashboard ? api.dashboardMetrics(activeTimeRange) : emptyResolved<DashboardMetricsPayload>()),
     [activeTimeRange, isAuthenticated, canDashboard]
   );
+  const overviewQ = useApiData<DashboardOverviewPayload>(
+    () => (canDashboard ? api.dashboardOverview() : emptyResolved<DashboardOverviewPayload>()),
+    [isAuthenticated, canDashboard]
+  );
+  const chartsQ = useApiData<DashboardChartsPayload>(
+    () => (canDashboard ? api.dashboardCharts() : emptyResolved<DashboardChartsPayload>()),
+    [isAuthenticated, canDashboard]
+  );
+  const reloadDashboard = () => {
+    metricsQ.reload();
+    overviewQ.reload();
+    chartsQ.reload();
+  };
 
   // 启动时校验已存 token,并加载用户身份(角色/体系/权限以后端为准)
   useEffect(() => {
@@ -154,10 +170,9 @@ function AppShell() {
           roleSystem: res.data.roleSystem,
           permissions: res.data.permissions ?? [],
         });
-      } else if (res.code === 401) {
-        setIsAuthenticated(false);
-      } else if (res.code !== 200) {
-        // 账号被停用/未接入核查平台等:清理会话回登录页,避免卡在加载态
+      } else if (res.code === 401 || res.code === 403) {
+        // 401 凭证失效 / 403 账号未接入或被停用:清理会话回登录页;
+        // 其余错误(网络瞬断等)保留登录态,刷新重试即可
         clearSavedToken();
         setIsAuthenticated(false);
       }
@@ -192,7 +207,8 @@ function AppShell() {
     });
   }, []);
 
-  const currentMetrics = dashboard.data?.metrics ?? METRICS_BY_TIME_RANGE[activeTimeRange];
+  // 工作台指标只认后端数据,无本地默认兜底;未就绪时工作台显示 loading 骨架
+  const currentMetrics = metricsQ.data?.metrics ?? null;
 
   // 登录后落地页: 有工作台权限进工作台,教学体系落核查任务列表
   const landing = useMemo(
@@ -213,13 +229,13 @@ function AppShell() {
   };
 
   const filteredOngoingCases = useMemo(
-    () => filterOngoingCases(dashboard.data?.ongoingCases ?? [], searchQuery),
-    [dashboard.data, searchQuery]
+    () => filterOngoingCases(overviewQ.data?.ongoingCases ?? [], searchQuery),
+    [overviewQ.data, searchQuery]
   );
 
   const filteredPendingReviews = useMemo(
-    () => filterPendingReviews(dashboard.data?.pendingReviews ?? [], searchQuery),
-    [dashboard.data, searchQuery]
+    () => filterPendingReviews(overviewQ.data?.pendingReviews ?? [], searchQuery),
+    [overviewQ.data, searchQuery]
   );
 
   const handleTriggerBanner = (msg: string) => {
@@ -290,8 +306,8 @@ function AppShell() {
           activeTimeRange={activeTimeRange}
           onTimeRangeChange={setActiveTimeRange}
           onOpenNotifications={() => {
-            const pending = dashboard.data?.pendingCount ?? 0;
-            const latest = dashboard.data?.pendingReviews?.[0];
+            const pending = overviewQ.data?.pendingCount ?? 0;
+            const latest = overviewQ.data?.pendingReviews?.[0];
             handleTriggerBanner(
               pending > 0
                 ? `当前有 ${pending} 条待人工审核案件提醒${latest ? `，最近一条来自 ${latest.submitter} (${latest.caseId})` : ''}`
@@ -368,10 +384,15 @@ function AppShell() {
                   onSelectCase={(item) => openCase(item.caseId)}
                   onViewAllCases={() => navigate('/tasks')}
                   currentUser={currentUser}
-                  dashboard={dashboard.data}
-                  dashboardLoading={dashboard.loading}
-                  dashboardError={dashboard.error}
-                  onReloadDashboard={dashboard.reload}
+                  overview={overviewQ.data}
+                  charts={chartsQ.data}
+                  sectionLoading={metricsQ.loading || overviewQ.loading || chartsQ.loading}
+                  sectionErrors={[
+                    metricsQ.error,
+                    overviewQ.error,
+                    chartsQ.error,
+                  ].filter((e): e is string => Boolean(e))}
+                  onReloadDashboard={reloadDashboard}
                 />
               )}
             />
@@ -455,7 +476,7 @@ function AppShell() {
                     handleTriggerBanner(
                       `案件 ${id} 状态已更新为：${status} (${conclusion})`
                     );
-                    dashboard.reload();
+                    reloadDashboard();
                   }}
                 />
               )}

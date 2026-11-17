@@ -194,61 +194,8 @@ export interface TimeRangeMetrics {
   closeRateDelta: string;
 }
 
-export const METRICS_BY_TIME_RANGE: Record<TimeRangeKey, TimeRangeMetrics> = {
-  today: {
-    totalClues: '1,284',
-    growthRate: '+12.4%',
-    lastPeriodComparison: '较上周 1,142 · +142',
-    dailyAverage: '42.8',
-    verifiedCases: 396,
-    verifiedDelta: '+18',
-    ongoingCount: 47,
-    ongoingDelta: '+6',
-    closedCount: 349,
-    closedDelta: '+12',
-    closeRate: '88.1',
-    closeRateDelta: '+2.3%',
-  },
-  '7d': {
-    totalClues: '3,412',
-    growthRate: '+15.8%',
-    lastPeriodComparison: '较上周 2,946 · +466',
-    dailyAverage: '48.7',
-    verifiedCases: 842,
-    verifiedDelta: '+64',
-    ongoingCount: 53,
-    ongoingDelta: '+9',
-    closedCount: 789,
-    closedDelta: '+55',
-    closeRate: '93.7',
-    closeRateDelta: '+1.8%',
-  },
-  '30d': {
-    totalClues: '12,680',
-    growthRate: '+19.2%',
-    lastPeriodComparison: '较上月 10,637 · +2,043',
-    dailyAverage: '422.6',
-    verifiedCases: 3120,
-    verifiedDelta: '+215',
-    ongoingCount: 86,
-    ongoingDelta: '+14',
-    closedCount: 3034,
-    closedDelta: '+201',
-    closeRate: '97.2',
-    closeRateDelta: '+3.1%',
-  },
-  year: {
-    totalClues: '98,450',
-    growthRate: '+34.6%',
-    lastPeriodComparison: '较去年 73,142 · +25,308',
-    dailyAverage: '318.6',
-    verifiedCases: 24510,
-    verifiedDelta: '+1,420',
-    ongoingCount: 112,
-    ongoingDelta: '+19',
-    closedCount: 24398,
-    closedDelta: '+1,401',
-    closeRate: '99.5',
-    closeRateDelta: '+4.2%',
-  },
-};
+// 说明: 本文件中的 PENDING_REVIEW_LIST / FUNNEL_STEPS / SOURCE_CREDIBILITY_* /
+// CONCLUSION_DISTRIBUTION / ONGOING_CASES / IMAGE_AUTH_SEGMENTS /
+// HEATMAP_DAYS / HEATMAP_MATRIX 为历史演示数据,现仅作组件 prop 的类型锚
+// (typeof 引用)与单元测试 fixture 使用;工作台 UI 已不将其作为兜底数据,
+// 后端数据未就绪时一律显示 loading 骨架。
