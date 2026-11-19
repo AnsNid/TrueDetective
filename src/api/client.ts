@@ -434,15 +434,28 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  /** 教学体系自助注册(学号/工号 + 姓名 + 密码) */
-  teachingRegister: (studentNo: string, name: string, password: string) =>
+  /** 教学体系自助注册(学号/工号 + 姓名 + 密码 + 邮箱验证码) */
+  teachingRegister: (
+    studentNo: string,
+    name: string,
+    password: string,
+    email: string,
+    code: string
+  ) =>
     apiRequest<{ username: string; role: string; roleLabel: string; roleSystem: string }>(
       '/teachingRegister',
       {
         method: 'POST',
-        body: JSON.stringify({ studentNo, name, password }),
+        body: JSON.stringify({ studentNo, name, password, email, code }),
       }
     ),
+
+  /** 发送学生注册验证码(邮箱须未被注册) */
+  sendRegisterCode: (email: string) =>
+    apiRequest<{ email: string }>('/sendRegisterCode', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    }),
 
   /** 批量导入学生(学号+姓名,随机初始密码仅本次返回) */
   importStudents: (students: Array<{ no: string; name: string }> | string) =>

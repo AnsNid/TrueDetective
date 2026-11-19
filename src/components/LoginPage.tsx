@@ -40,13 +40,24 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const [imgError, setImgError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // 教学体系自助注册(学生/工号)
+  // 教学体系自助注册(学生/工号 + 邮箱验证码)
   const [regNo, setRegNo] = useState('');
   const [regName, setRegName] = useState('');
   const [regPassword, setRegPassword] = useState('');
   const [regConfirm, setRegConfirm] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regCode, setRegCode] = useState('');
+  const [regCodeSending, setRegCodeSending] = useState(false);
+  const [regCountdown, setRegCountdown] = useState(0);
   const [regSubmitting, setRegSubmitting] = useState(false);
   const [regSuccess, setRegSuccess] = useState<string | null>(null);
+
+  // 注册验证码发送倒计时
+  useEffect(() => {
+    if (regCountdown <= 0) return;
+    const t = setTimeout(() => setRegCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [regCountdown]);
 
   // 忘记密码(工作室邮箱账号,验证码自助找回)
   const [fpEmail, setFpEmail] = useState('');
@@ -133,7 +144,29 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setErrorMessage(null);
   };
 
-  /** 教学体系自助注册:学号/工号(纯数字)+姓名+密码 */
+  /** 发送学生注册验证码(60 秒倒计时防刷) */
+  const handleSendRegCode = async () => {
+    if (regCodeSending || regCountdown > 0) return;
+    const email = regEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrorMessage('请先输入正确的注册邮箱');
+      return;
+    }
+    setErrorMessage(null);
+    setRegCodeSending(true);
+    try {
+      const res = await api.sendRegisterCode(email);
+      if (res.code === 200) {
+        setRegCountdown(60);
+      } else {
+        setErrorMessage(res.message || '验证码发送失败');
+      }
+    } finally {
+      setRegCodeSending(false);
+    }
+  };
+
+  /** 教学体系自助注册:学号/工号(纯数字)+姓名+密码+邮箱验证码 */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     if (regSubmitting) return;
@@ -155,11 +188,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
       setErrorMessage('两次输入的密码不一致');
       return;
     }
+    const email = regEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setErrorMessage('请输入正确的注册邮箱');
+      return;
+    }
+    if (!/^\d{6}$/.test(regCode.trim())) {
+      setErrorMessage('请输入 6 位邮箱验证码');
+      return;
+    }
     setErrorMessage(null);
     setRegSuccess(null);
     setRegSubmitting(true);
     try {
-      const res = await api.teachingRegister(no, name, regPassword);
+      const res = await api.teachingRegister(no, name, regPassword, email, regCode.trim());
       if (res.code === 200) {
         setRegSuccess(`注册成功！请使用学号 ${no} 与刚设置的密码登录`);
         setMode('login');
@@ -169,6 +211,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         setRegName('');
         setRegPassword('');
         setRegConfirm('');
+        setRegEmail('');
+        setRegCode('');
         return;
       }
       setErrorMessage(res.message || '注册失败,请稍后重试');
@@ -572,27 +616,86 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
 
-            <div>
-              <label
-                htmlFor="reg-name"
-                className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
-              >
-                姓名
-              </label>
-              <input
-                id="reg-name"
-                type="text"
-                value={regName}
-                onChange={(e) => {
-                  setRegName(e.target.value);
-                  if (errorMessage) setErrorMessage(null);
-                }}
-                placeholder="请输入真实姓名(仅用于展示)"
-                className="w-full h-10 px-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
-              />
-            </div>
+              <div>
+                <label
+                  htmlFor="reg-name"
+                  className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
+                >
+                  姓名
+                </label>
+                <input
+                  id="reg-name"
+                  type="text"
+                  value={regName}
+                  onChange={(e) => {
+                    setRegName(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  placeholder="请输入真实姓名(仅用于展示)"
+                  className="w-full h-10 px-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                />
+              </div>
 
-            <div>
+              <div>
+                <label
+                  htmlFor="reg-email"
+                  className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
+                >
+                  注册邮箱
+                </label>
+                <input
+                  id="reg-email"
+                  type="email"
+                  value={regEmail}
+                  onChange={(e) => {
+                    setRegEmail(e.target.value);
+                    if (errorMessage) setErrorMessage(null);
+                  }}
+                  placeholder="用于接收验证码,注册后可自助找回密码"
+                  className="w-full h-10 px-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="reg-code"
+                  className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
+                >
+                  邮箱验证码
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="reg-code"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={regCode}
+                    onChange={(e) => {
+                      setRegCode(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    placeholder="6 位数字"
+                    className="flex-1 h-10 px-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendRegCode}
+                    disabled={regCodeSending || regCountdown > 0}
+                    className="h-10 px-3.5 rounded-lg border border-[#2563EB] text-[#2563EB] hover:bg-blue-50 disabled:border-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed font-semibold text-[12.5px] whitespace-nowrap transition-colors cursor-pointer shrink-0"
+                  >
+                    {regCodeSending
+                      ? '发送中…'
+                      : regCountdown > 0
+                      ? `${regCountdown}s 后重发`
+                      : '发送验证码'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1.5">
+                  验证码 10 分钟内有效,60 秒内不可重发;邮箱须未被注册。
+                </p>
+              </div>
+
+              <div>
               <label
                 htmlFor="reg-password"
                 className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
@@ -724,7 +827,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 </button>
               </div>
               <p className="text-[11px] text-slate-400 mt-1.5">
-                验证码 10 分钟内有效；教学学号账号请联系管理员在用户管理页重置密码。
+                验证码 10 分钟内有效；注册时未绑定邮箱的教学账号请联系管理员重置密码。
               </p>
             </div>
 
