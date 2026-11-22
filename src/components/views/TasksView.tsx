@@ -21,6 +21,8 @@ interface TasksViewProps {
   onOpenNewClue?: () => void;
   onSelectTask?: (task: TaskItemApi) => void;
   currentUser?: AuthenticatedUser | null;
+  /** 顶栏全局检索关键词(回车跳转/已在本页时同步过滤) */
+  searchInitial?: string;
 }
 
 const PAGE_SIZE = 12;
@@ -29,9 +31,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
   onOpenNewClue,
   onSelectTask,
   currentUser,
+  searchInitial = '',
 }) => {
   const [filterTab, setFilterTab] = useState<'all' | 'ongoing' | 'closed' | 'high_priority'>('all');
-  const [searchKey, setSearchKey] = useState('');
+  const [searchKey, setSearchKey] = useState(searchInitial.trim());
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState(true);
@@ -78,6 +81,16 @@ export const TasksView: React.FC<TasksViewProps> = ({
     load(currentPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterTab, currentPage]);
+
+  // 顶栏检索同步:header 关键词变化时刷新本地搜索(用户在本页输入不影响该同步)
+  const externalKw = React.useRef(searchInitial.trim());
+  useEffect(() => {
+    const kw = searchInitial.trim();
+    if (kw !== externalKw.current) {
+      externalKw.current = kw;
+      setSearchKey(kw);
+    }
+  }, [searchInitial]);
 
   useEffect(() => {
     // 搜索防抖(跳过首帧: 挂载时上方 effect 已发起首次加载,避免双请求)

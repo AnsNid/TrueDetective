@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { lazy, Suspense, useState, useMemo, useEffect } from 'react';
+import { lazy, Suspense, useState, useMemo, useEffect, useRef } from 'react';
 import {
   BrowserRouter,
   HashRouter,
@@ -19,6 +19,7 @@ import { TopBar } from './components/TopBar';
 import { ScrollToTop } from './components/ScrollToTop';
 import { LoginPage, AuthenticatedUser } from './components/LoginPage';
 import { api, getSavedToken, setSavedToken, clearSavedToken, AUTH_EXPIRED_EVENT } from './api/client';
+import type { TaskItemApi } from './api/client';
 import { useApiData } from './api/hooks';
 import type {
   DashboardMetricsPayload,
@@ -130,9 +131,37 @@ function AppShell() {
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
   // 401 全局广播携带的提示文案,回登录页时透出
   const [authExpiredMsg, setAuthExpiredMsg] = useState<string | null>(null);
+  // 顶栏全局检索建议(防抖调任务接口,正式结果页在 /tasks)
+  const [headerSuggestions, setHeaderSuggestions] = useState<TaskItemApi[]>([]);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+  const suggestSeq = useRef(0);
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 顶栏检索建议:输入防抖 300ms 后取前 6 条案件(竞态守卫,旧响应丢弃)
+  useEffect(() => {
+    const kw = searchQuery.trim();
+    if (!kw) {
+      setHeaderSuggestions([]);
+      setSuggestLoading(false);
+      return;
+    }
+    const t = setTimeout(() => {
+      const seq = ++suggestSeq.current;
+      setSuggestLoading(true);
+      api
+        .tasks({ tab: 'all', keyword: kw, page: 1, pageSize: 6 })
+        .then((res) => {
+          if (seq !== suggestSeq.current) return;
+          setHeaderSuggestions(res.code === 200 && res.data ? res.data.list : []);
+        })
+        .finally(() => {
+          if (seq === suggestSeq.current) setSuggestLoading(false);
+        });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   // 任一接口返回 401 时统一清登录态回登录页(client.ts apiRequest 广播),
   // 避免用户停留在已失效会话的空态页面里继续操作
@@ -342,6 +371,11 @@ function AppShell() {
         <TopBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
+          searchSuggestions={headerSuggestions}
+          suggestLoading={suggestLoading}
+          onSearchSubmit={() => navigate('/tasks')}
+          onOpenCase={openCase}
+          showTimeRange={location.pathname === '/workbench'}
           activeTimeRange={activeTimeRange}
           onTimeRangeChange={setActiveTimeRange}
           onOpenNotifications={() => {
@@ -458,6 +492,7 @@ function AppShell() {
                   onOpenNewClue={() => navigate('/clues')}
                   onSelectTask={(task) => openCase(task.id)}
                   currentUser={currentUser}
+                  searchInitial={searchQuery}
                 />
               )}
             />

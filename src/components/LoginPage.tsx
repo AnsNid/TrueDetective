@@ -31,13 +31,10 @@ interface LoginPageProps {
   sessionMessage?: string | null;
 }
 
-// 演示账号(预填/快捷切换/重置凭证)仅在开发构建显示,生产构建不暴露
-const SHOW_DEMO = Boolean(import.meta.env?.DEV);
-
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMessage }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [username, setUsername] = useState(SHOW_DEMO ? 'zhangming@zhentan.org' : '');
-  const [password, setPassword] = useState(SHOW_DEMO ? 'Zt@2026Admin' : '');
+  const [username, setUsername] = useState('zhangming@zhentan.org');
+  const [password, setPassword] = useState('Zt@2026Admin');
   const [roleLabel, setRoleLabel] = useState('总编');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -925,8 +922,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
           </form>
           )}
 
-          {/* Quick Account Switcher(仅开发构建显示演示账号) */}
-          {SHOW_DEMO && (
+          {/* Quick Account Switcher(体验账号,仅登录 tab 显示,方便评审/演示直接进入) */}
+          {mode === 'login' && (
           <div className="mt-6 pt-5 border-t border-slate-100">
             <div className="flex items-center justify-between gap-2 text-[11.5px]">
               <span className="text-slate-400 shrink-0">快捷演示账号：</span>

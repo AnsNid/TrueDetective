@@ -7,12 +7,21 @@ import {
 } from '../data/dashboardData';
 import { AuthenticatedUser } from './LoginPage';
 import { api, clearSavedToken } from '../api/client';
-import type { SiteConfig } from '../api/client';
+import type { SiteConfig, TaskItemApi } from '../api/client';
 import { useApiData } from '../api/hooks';
 
 interface TopBarProps {
   searchQuery: string;
   onSearchChange: (val: string) => void;
+  /** 顶栏检索建议案件列表(实时下拉) */
+  searchSuggestions?: TaskItemApi[];
+  suggestLoading?: boolean;
+  /** 回车/查看全部结果:跳转正式结果页(/tasks) */
+  onSearchSubmit?: () => void;
+  /** 点击建议项打开案件工作台 */
+  onOpenCase?: (caseId: string) => void;
+  /** 时间范围筛选仅在工作台显示 */
+  showTimeRange?: boolean;
   activeTimeRange: TimeRangeKey;
   onTimeRangeChange: (key: TimeRangeKey) => void;
   onOpenNotifications: () => void;
@@ -24,6 +33,11 @@ interface TopBarProps {
 export const TopBar: React.FC<TopBarProps> = ({
   searchQuery,
   onSearchChange,
+  searchSuggestions = [],
+  suggestLoading = false,
+  onSearchSubmit,
+  onOpenCase,
+  showTimeRange = false,
   activeTimeRange,
   onTimeRangeChange,
   onOpenNotifications,
@@ -72,6 +86,70 @@ export const TopBar: React.FC<TopBarProps> = ({
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [menuOpen]);
+
+  // 顶栏检索:聚焦 + 非空关键词时显示实时建议下拉
+  const [searchFocus, setSearchFocus] = useState(false);
+  const showSuggest = searchFocus && searchQuery.trim().length > 0;
+  const searchDropdown = showSuggest ? (
+    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+      {suggestLoading && searchSuggestions.length === 0 ? (
+        <div className="px-3 py-2.5 text-[11px] text-slate-400">检索中…</div>
+      ) : searchSuggestions.length === 0 ? (
+        <div className="px-3 py-2.5 text-[11px] text-slate-400">未找到匹配案件，回车在核查任务中查看</div>
+      ) : (
+        <>
+          {searchSuggestions.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                setSearchFocus(false);
+                onOpenCase?.(s.id);
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-blue-50 transition-colors cursor-pointer text-left"
+            >
+              <span className="font-mono text-[10px] text-slate-400 tabular-nums shrink-0">{s.id}</span>
+              <span className="flex-1 min-w-0 truncate text-[11.5px] text-slate-700">{s.title}</span>
+              <span
+                className={`shrink-0 px-1.5 py-0.5 rounded text-[9.5px] font-semibold ${
+                  s.status === '已结案'
+                    ? 'bg-emerald-50 text-emerald-600'
+                    : 'bg-amber-50 text-amber-600'
+                }`}
+              >
+                {s.status === '已结案' ? '已结案' : `${s.stageProgressNum}/9`}
+              </span>
+            </button>
+          ))}
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              setSearchFocus(false);
+              onSearchSubmit?.();
+            }}
+            className="w-full px-3 py-2 text-[11px] text-blue-600 font-medium hover:bg-blue-50 border-t border-slate-100 cursor-pointer text-left"
+          >
+            查看全部结果 ›
+          </button>
+        </>
+      )}
+    </div>
+  ) : null;
+
+  /** 检索输入通用行为:聚焦展开建议,回车跳正式结果页 */
+  const searchInputProps = {
+    onFocus: () => setSearchFocus(true),
+    onBlur: () => setSearchFocus(false),
+    onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key === 'Enter') {
+        onSearchSubmit?.();
+        setSearchFocus(false);
+        (e.target as HTMLInputElement).blur();
+      }
+    },
+  };
 
   /** 用户区 pill + 下拉菜单(桌面/移动复用,compact 控制字号) */
   const renderUserMenu = (compact = false) => (
@@ -211,11 +289,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="搜索线索、案件、关键词或链接..."
+            {...searchInputProps}
             className="w-full h-[30px] pl-9 pr-3 rounded-full bg-[#F4F6F9] border border-slate-200/70 text-[12px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white transition-colors"
           />
+          {searchDropdown}
         </div>
 
-        {/* Time Range Selector (visible on md+ inline) */}
+        {/* Time Range Selector (visible on md+ inline, 仅工作台显示) */}
+        {showTimeRange && (
         <div
           role="group"
           aria-label="时间范围筛选"
@@ -239,6 +320,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             );
           })}
         </div>
+        )}
 
         {/* System Status Indicators (visible on xl+, 消费 getConfig 真实开关) */}
         <div className="hidden xl:flex items-center gap-4 pl-1 shrink-0">
@@ -413,11 +495,14 @@ export const TopBar: React.FC<TopBarProps> = ({
             aria-label="移动端搜索线索或案件"
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
+            {...searchInputProps}
             placeholder="搜索线索、案件..."
             className="w-full h-[30px] pl-8 pr-2.5 rounded-full bg-[#F4F6F9] border border-slate-200/70 text-[12px] text-slate-700 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:bg-white"
           />
+          {searchDropdown}
         </div>
 
+        {showTimeRange && (
         <div
           role="group"
           aria-label="移动端时间范围筛选"
@@ -441,6 +526,7 @@ export const TopBar: React.FC<TopBarProps> = ({
             );
           })}
         </div>
+        )}
       </div>
 
       {/* Desktop Right User & Action Controls (lg+) */}
