@@ -38,6 +38,11 @@ export const TasksView: React.FC<TasksViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [payload, setPayload] = useState<TasksPayload | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const reqSeq = React.useRef(0);
+  const firstSearch = React.useRef(true);
+  const searchTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 行内操作(删除/沉淀)进行中的案件 id,防连点
+  const [rowAction, setRowAction] = useState<{ id: string; type: 'delete' | 'deposit' } | null>(null);
 
   const canManage = hasPerm(currentUser?.permissions, 'case.delete');
   const canDeposit = hasPerm(currentUser?.permissions, 'case.review');
@@ -49,18 +54,22 @@ export const TasksView: React.FC<TasksViewProps> = ({
 
   const load = React.useCallback(
     (page = currentPage) => {
+      const seq = ++reqSeq.current;
       setLoading(true);
       setError(null);
       api
         .tasks({ tab: filterTab, keyword: searchKey.trim(), page, pageSize: PAGE_SIZE })
         .then((res) => {
+          if (seq !== reqSeq.current) return; // 旧响应丢弃,避免快速切换时竞态覆盖
           if (res.code === 200 && res.data) {
             setPayload(res.data);
           } else {
             setError(res.message || '加载失败');
           }
         })
-        .finally(() => setLoading(false));
+        .finally(() => {
+          if (seq === reqSeq.current) setLoading(false);
+        });
     },
     [filterTab, searchKey, currentPage]
   );
@@ -71,18 +80,54 @@ export const TasksView: React.FC<TasksViewProps> = ({
   }, [filterTab, currentPage]);
 
   useEffect(() => {
-    // 搜索防抖
-    const t = setTimeout(() => {
+    // 搜索防抖(跳过首帧: 挂载时上方 effect 已发起首次加载,避免双请求)
+    if (firstSearch.current) {
+      firstSearch.current = false;
+      return;
+    }
+    searchTimer.current = setTimeout(() => {
       setCurrentPage(1);
       load(1);
     }, 400);
-    return () => clearTimeout(t);
+    return () => {
+      if (searchTimer.current) clearTimeout(searchTimer.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchKey]);
+
+  // 回车立即查询(清掉防抖定时器,跳过 400ms 等待)
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== 'Enter') return;
+    if (searchTimer.current) {
+      clearTimeout(searchTimer.current);
+      searchTimer.current = null;
+    }
+    if (currentPage === 1) {
+      load(1);
+    } else {
+      setCurrentPage(1);
+    }
+  };
+
+  // 切筛选/翻页/改搜索词后清空勾选,避免批量删除作用到不可见条目
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [filterTab, currentPage, searchKey]);
+
+  // 末页删空后页码钳制,避免停留在空白页
+  useEffect(() => {
+    if (payload && payload.totalPages > 0 && currentPage > payload.totalPages) {
+      setCurrentPage(payload.totalPages);
+    }
+  }, [payload, currentPage]);
 
   const tasks = payload?.list ?? [];
   const total = payload?.total ?? 0;
   const totalPages = payload?.totalPages ?? 1;
+  // 指标卡进度条 = 本页真实占比,不再用装饰性假比例
+  const ongoingCount = tasks.filter((t) => t.status !== '已结案').length;
+  const closedCount = tasks.filter((t) => t.status === '已结案').length;
+  const pctOf = (n: number) => (tasks.length ? Math.round((n / tasks.length) * 100) : 0);
 
   const toggleSelectAll = () => {
     if (selectedIds.length === tasks.length) {
@@ -99,20 +144,33 @@ export const TasksView: React.FC<TasksViewProps> = ({
   };
 
   const handleDeleteRow = async (task: TaskItemApi) => {
+    if (rowAction) return;
     if (!window.confirm(`确定删除案件 ${task.id} 吗？`)) return;
-    const res = await api.deleteCase(task.id);
-    if (res.code === 200) {
-      showToast(`案件 ${task.id} 已删除`);
-      setSelectedIds((prev) => prev.filter((i) => i !== task.id));
-      load();
-    } else {
-      showToast(res.message || '删除失败');
+    setRowAction({ id: task.id, type: 'delete' });
+    try {
+      const res = await api.deleteCase(task.id);
+      if (res.code === 200) {
+        showToast(`案件 ${task.id} 已删除`);
+        setSelectedIds((prev) => prev.filter((i) => i !== task.id));
+        load();
+      } else {
+        showToast(res.message || '删除失败');
+      }
+    } finally {
+      setRowAction(null);
     }
   };
 
   const handleDepositRow = async (task: TaskItemApi) => {
-    const res = await api.depositCase(task.id);
-    showToast(res.code === 200 ? `案件 ${task.id} 已沉淀为教学案例` : res.message || '沉淀失败');
+    if (rowAction) return;
+    if (!window.confirm(`确定将案件 ${task.id} 沉淀为教学案例吗？`)) return;
+    setRowAction({ id: task.id, type: 'deposit' });
+    try {
+      const res = await api.depositCase(task.id);
+      showToast(res.code === 200 ? `案件 ${task.id} 已沉淀为教学案例` : res.message || '沉淀失败');
+    } finally {
+      setRowAction(null);
+    }
   };
 
   const handleBatchDelete = async () => {
@@ -196,7 +254,8 @@ export const TasksView: React.FC<TasksViewProps> = ({
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400 tabular-nums">
-          共 {total} 个案件 · {filterTab === 'closed' ? total : total - (payload?.list.filter((t) => t.status === '已结案').length ?? 0)} 进行中
+          共 {total} 个案件
+          {filterTab === 'all' ? ` · 本页 ${ongoingCount} 进行中` : ''}
         </div>
       </div>
 
@@ -215,24 +274,24 @@ export const TasksView: React.FC<TasksViewProps> = ({
           <div className="text-[11px] text-slate-500 font-medium">进行中</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-extrabold text-[#2563EB] tabular-nums">
-              {tasks.filter((t) => t.status !== '已结案').length || 0}
+              {ongoingCount || 0}
             </span>
             <span className="text-[10px] text-slate-400">本页</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: '56%' }}></div>
+            <div className="bg-[#2563EB] h-full rounded-full" style={{ width: `${pctOf(ongoingCount)}%` }}></div>
           </div>
         </div>
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
           <div className="text-[11px] text-slate-500 font-medium">已结案</div>
           <div className="mt-1 flex items-baseline gap-2">
             <span className="text-2xl font-extrabold text-emerald-600 tabular-nums">
-              {tasks.filter((t) => t.status === '已结案').length || 0}
+              {closedCount || 0}
             </span>
             <span className="text-[10px] text-slate-400">本页</span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-emerald-500 h-full rounded-full" style={{ width: '44%' }}></div>
+            <div className="bg-emerald-500 h-full rounded-full" style={{ width: `${pctOf(closedCount)}%` }}></div>
           </div>
         </div>
         <div className="bg-white border border-slate-200/90 rounded-xl p-3.5 shadow-xs">
@@ -244,7 +303,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
             </span>
           </div>
           <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden">
-            <div className="bg-indigo-500 h-full rounded-full" style={{ width: '68%' }}></div>
+            <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${pctOf(selectedIds.length)}%` }}></div>
           </div>
         </div>
       </div>
@@ -279,6 +338,7 @@ export const TasksView: React.FC<TasksViewProps> = ({
                 type="text"
                 value={searchKey}
                 onChange={(e) => setSearchKey(e.target.value)}
+                onKeyDown={handleSearchKeyDown}
                 placeholder="搜索案件编号 / 标题 / 负责人"
                 className="pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 text-[11.5px] w-56 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
@@ -437,9 +497,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                           canDeposit ? (
                             <button
                               onClick={() => handleDepositRow(task)}
-                              className="text-emerald-600 hover:text-emerald-700 cursor-pointer"
+                              disabled={rowAction !== null}
+                              className="text-emerald-600 hover:text-emerald-700 disabled:text-slate-300 disabled:cursor-not-allowed cursor-pointer"
                             >
-                              沉淀
+                              {rowAction?.id === task.id && rowAction.type === 'deposit' ? '沉淀中…' : '沉淀'}
                             </button>
                           ) : (
                             <span className="text-slate-300">沉淀</span>
@@ -447,9 +508,10 @@ export const TasksView: React.FC<TasksViewProps> = ({
                         ) : canManage ? (
                           <button
                             onClick={() => handleDeleteRow(task)}
-                            className="text-rose-500 hover:text-rose-600 cursor-pointer"
+                            disabled={rowAction !== null}
+                            className="text-rose-500 hover:text-rose-600 disabled:text-slate-300 disabled:cursor-not-allowed cursor-pointer"
                           >
-                            删除
+                            {rowAction?.id === task.id && rowAction.type === 'delete' ? '删除中…' : '删除'}
                           </button>
                         ) : (
                           <span className="text-slate-300">删除</span>

@@ -90,6 +90,16 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     .slice(0, 5)
     .map(([date, count]) => ({ date, count, w: `${Math.round((count / Math.max(...timelineMap.values(), 1)) * 100)}%` }));
 
+  // 时间线真实区间(最早 ~ 最晚结案日期)
+  const allClosedDates = historyCases.map((c) => c.closedDate ?? '').filter(Boolean).sort();
+  const timelineRange = allClosedDates.length
+    ? `${allClosedDates[0].slice(5)} ~ ${allClosedDates[allClosedDates.length - 1].slice(5)}`
+    : '';
+  // 平均复核轮次(真实计算)
+  const avgReviewRounds = closedCount
+    ? (historyCases.reduce((a, c) => a + (c.reviewRounds || 0), 0) / closedCount).toFixed(1)
+    : '—';
+
   const getConclusionBadge = (conclusion: string) => {
     switch (conclusion) {
       case '误导':
@@ -135,7 +145,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400">
-          本月结案 {closedCount} 个 · 沉淀率 {depositRate}% · 教学案例库已同步更新
+          已沉淀 {depositedCount} 个 · 沉淀率 {depositRate}% · 平均结案 {avgDuration} 天
         </div>
       </div>
 
@@ -342,11 +352,13 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563EB]"></span>
                 结案时间线
               </div>
-              <span className="text-[10px] text-slate-400">9-18 ~ 9-24</span>
+              <span className="text-[10px] text-slate-400">{timelineRange || '暂无数据'}</span>
             </div>
 
             <div className="space-y-2 text-[11px]">
-              {timelineRows.map((row) => (
+              {timelineRows.length === 0 ? (
+                <div className="py-2 text-center text-slate-400">暂无结案记录</div>
+              ) : timelineRows.map((row) => (
                 <div key={row.date} className="flex items-center gap-2">
                   <span className="w-12 text-slate-400 tabular-nums">{row.date}</span>
                   <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">
@@ -363,7 +375,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
             </div>
 
             <p className="text-[10px] text-slate-400 pt-1 border-t border-slate-100">
-              平均复核 2 轮 · 无返工案例
+              平均复核 {avgReviewRounds} 轮
             </p>
           </div>
 
@@ -377,7 +389,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               结案即沉淀: 案件报告、证据链与结论置信度一并归档，供培训与复用检索。
             </p>
             <p className="text-slate-600 leading-relaxed text-[10.5px]">
-              全部 7 个案例已进入知识库「典型案例」，可一键引用到培训。
+              已沉淀 {depositedCount} / {closedCount} 个案例进入知识库「典型案例」，可一键引用到培训。
             </p>
           </div>
         </div>

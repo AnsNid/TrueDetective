@@ -36,8 +36,7 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
   // Green (真实现场图) on right-bottom, Blue (疑似AI生成) on bottom-left, Orange (疑似旧图新用) on top-left
   const radius = 42;
   const circumference = 2 * Math.PI * radius;
-  const segPct = (idx: number) =>
-    imageAuthSegments[idx]?.percentage ?? [41, 37, 23][idx] ?? 0;
+  const segPct = (idx: number) => imageAuthSegments[idx]?.percentage ?? 0;
   const greenLen = (segPct(0) / 100) * circumference;
   const blueLen = (segPct(1) / 100) * circumference;
   const orangeLen = (segPct(2) / 100) * circumference;
@@ -293,7 +292,9 @@ export const Row3CasesAndCharts: React.FC<Row3CasesAndChartsProps> = ({
 
         {/* Legend List */}
         <div className="divide-y divide-slate-100 text-[11.5px]">
-          {imageAuthSegments.map((seg) => (
+          {imageAuthSegments.length === 0 ? (
+            <div className="py-4 text-center text-slate-400 text-[11px]">暂无图片真伪判定数据</div>
+          ) : imageAuthSegments.map((seg) => (
             <div
               key={seg.label}
               className="py-1 first:pt-0 last:pb-0 flex items-center justify-between"

@@ -97,7 +97,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
             .filter((m) => m.role === '成员')
             .sort((a, b) => a.load - b.load);
           const pick = verifiers[0] ?? list[0];
-          if (pick) setAssignee(`${pick.name} · 当前 ${pick.load} 件在办`);
+          if (pick) setAssignee(pick.name);
         }
       });
     }
@@ -159,7 +159,6 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    setSubmittedToast(true);
     setSubmitError(null);
     setSubmitting(true);
     try {
@@ -178,6 +177,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
         relatedCase,
       });
       if (res.code === 200 && res.data?.caseNo) {
+        // 成功才提示(避免提交期间/失败瞬间闪现"提交成功")
+        setSubmittedToast(true);
         localStorage.removeItem(DRAFT_KEY);
         setDraftSavedAt(null);
         if (onSuccessSubmit) {
@@ -392,7 +393,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
                   原文内容 (外文原文或截图) <span className="text-rose-500">*</span>
                 </label>
                 <span className="text-[10px] text-blue-600 font-medium">
-                  支持直接粘贴截图 (Ctrl+V) 自动识别文字
+                  支持直接粘贴截图 (Ctrl+V) 预览
                 </span>
               </div>
               <textarea
@@ -407,11 +408,11 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
               {ocrDetected && (
                 <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-700 text-[11px] flex items-center gap-1.5 mt-1.5 animate-in fade-in">
                   <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>已识别剪贴板图片！已自动保留图片并调用 OCR 解析画面内容。</span>
+                  <span>已识别剪贴板图片！已切换为图片线索并本地预览,请在下方补充图片说明(自动 OCR 暂未接入)。</span>
                 </div>
               )}
               <div className="text-[10px] text-slate-400 mt-1">
-                粘贴外文原文或截图，系统自动 OCR 并保留图片溯源
+                粘贴外文原文或截图;截图仅本地预览,提交时以图片说明文字进入核查
               </div>
             </div>
 
@@ -593,7 +594,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
                 >
                   {members.length === 0 && <option value="">(加载中…)</option>}
                   {members.map((m) => (
-                    <option key={m.name} value={`${m.name} · 当前 ${m.load} 件在办`}>
+                    <option key={m.name} value={m.name}>
                       {m.name}({m.role}) · 当前 {m.load} 件在办
                     </option>
                   ))}

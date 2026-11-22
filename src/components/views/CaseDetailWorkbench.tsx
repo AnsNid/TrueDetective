@@ -51,19 +51,25 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
 
+  // 请求序号守卫:caseId 切换后旧响应直接丢弃,避免竞态串案
+  const detailSeq = React.useRef(0);
   const loadCaseDetail = React.useCallback(() => {
+    const seq = ++detailSeq.current;
     setDetailLoading(true);
     setDetailError(null);
     api
       .caseDetail(caseId)
       .then((res) => {
+        if (seq !== detailSeq.current) return;
         if (res.code === 200 && res.data) {
           setLoadedCase(res.data as FullCaseDetail);
         } else {
           setDetailError(res.message || '案件加载失败');
         }
       })
-      .finally(() => setDetailLoading(false));
+      .finally(() => {
+        if (seq === detailSeq.current) setDetailLoading(false);
+      });
   }, [caseId]);
 
   useEffect(() => {
@@ -85,12 +91,10 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   const [revisedConclusion, setRevisedConclusion] = useState('');
   const [revisedConfidence, setRevisedConfidence] = useState('');
   const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({});
-  // 审核清单由后端下发,加载后初始化勾选状态
+  // 审核清单由后端下发,加载后初始化勾选;清单为空时清空勾选,避免跨案件残留
   useEffect(() => {
     const checklist: string[] = (loadedCase as any)?.review_checklist || [];
-    if (checklist.length) {
-      setCheckItems(Object.fromEntries(checklist.map((item) => [item, true])));
-    }
+    setCheckItems(checklist.length ? Object.fromEntries(checklist.map((item) => [item, true])) : {});
   }, [loadedCase]);
 
   // Trigger feedback toast
@@ -132,6 +136,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     const from = Math.max(2, caseData.stage + 1);
 
     try {
+      let allDone = true;
       for (let step = from; step <= 8; step++) {
         setRunningStepMsg(`正在执行: 环节 ${step} · ${stepNames[step]}...`);
         const res = await api.runPipeline(caseData.case_no, step);
@@ -140,28 +145,41 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         } else if (res.code === 401) {
           clearSavedToken();
           triggerToast('登录凭证已失效,请重新登录后操作');
+          allDone = false;
           break;
         } else {
           triggerToast(res.message || `环节 ${step} 执行失败`);
+          allDone = false;
           break;
         }
       }
-      triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
+      if (allDone) {
+        triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
+      }
     } finally {
       setRunningStepMsg(null);
       setIsRunningAll(false);
     }
   };
 
+  // 单环节重算进行中的环节号(防连点/可视化)
+  const [rerunningStep, setRerunningStep] = useState<number | null>(null);
+
   // Re-run single step (调用后端重算并持久化)
   const handleRerunStep = async (stepNum: number, stepName: string) => {
+    if (rerunningStep !== null || isRunningAll) return;
+    setRerunningStep(stepNum);
     triggerToast(`正在重新执行环节 ${stepNum}：${stepName}...`);
-    const res = await api.runPipeline(caseData.case_no, stepNum);
-    if (res.code === 200 && res.data?.detail) {
-      setLoadedCase(res.data.detail as FullCaseDetail);
-      triggerToast(`环节 ${stepNum} (${stepName}) 重新计算完成！`);
-    } else {
-      triggerToast(res.message || `环节 ${stepNum} 重新计算失败`);
+    try {
+      const res = await api.runPipeline(caseData.case_no, stepNum);
+      if (res.code === 200 && res.data?.detail) {
+        setLoadedCase(res.data.detail as FullCaseDetail);
+        triggerToast(`环节 ${stepNum} (${stepName}) 重新计算完成！`);
+      } else {
+        triggerToast(res.message || `环节 ${stepNum} 重新计算失败`);
+      }
+    } finally {
+      setRerunningStep(null);
     }
   };
 
@@ -187,17 +205,17 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         confidence: revisedConfidence,
       });
       if (res.code === 200 && res.data?.detail) {
-        setLoadedCase(res.data.detail as FullCaseDetail);
+        const detail = res.data.detail as FullCaseDetail;
+        setLoadedCase(detail);
         setReviewComment('');
-        const isDone = reviewAction === 'approved';
-        triggerToast(
-          isDone ? '审核通过！案件已结案归档。' : '审核记录已保存，案件已退回/标记修改。'
-        );
+        // 是否结案以后端返回状态为准: 四级审核流中 level<4 通过只是流转下一级,并非结案
+        const done = detail.status === 'done';
+        triggerToast(done ? '终审通过！案件已结案归档。' : res.message || '审核记录已保存。');
         if (onUpdateCaseStatus) {
           onUpdateCaseStatus(
             caseData.case_no,
-            isDone ? '已结案' : '进行中',
-            caseData.final_conclusion
+            done ? '已结案' : '进行中',
+            detail.final_conclusion ?? caseData.final_conclusion
           );
         }
       } else {
@@ -284,12 +302,20 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     }
   };
 
-  // 沉淀为教学案例(已结案)
+  // 沉淀为教学案例(已结案;二次确认 + 防连点)
+  const [depositing, setDepositing] = useState(false);
   const handleDeposit = async () => {
-    const res = await api.depositCase(caseData.case_no);
-    triggerToast(res.code === 200 ? '已沉淀为知识库教学案例' : res.message || '沉淀失败');
-    if (res.code === 200) {
-      loadCaseDetail();
+    if (depositing) return;
+    if (!window.confirm(`确定将案件 ${caseData.case_no} 沉淀为知识库教学案例吗？`)) return;
+    setDepositing(true);
+    try {
+      const res = await api.depositCase(caseData.case_no);
+      triggerToast(res.code === 200 ? '已沉淀为知识库教学案例' : res.message || '沉淀失败');
+      if (res.code === 200) {
+        loadCaseDetail();
+      }
+    } finally {
+      setDepositing(false);
     }
   };
 
@@ -466,10 +492,11 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
           {caseData.status === 'done' && hasPerm(currentUser.permissions, 'case.review') && (
             <button
               onClick={handleDeposit}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 shadow-xs transition-colors cursor-pointer"
+              disabled={depositing}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 shadow-xs transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
               <Layers className="w-3.5 h-3.5" />
-              沉淀为教学案例
+              {depositing ? '沉淀中…' : '沉淀为教学案例'}
             </button>
           )}
 
@@ -525,49 +552,21 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
           {/* Quick Rerun Individual Steps */}
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] bg-slate-50 p-2 rounded-lg border border-slate-200">
-            <span className="text-slate-400 font-medium mr-1">单环节重算:</span>
-            <button
-              onClick={() => handleRerunStep(2, '价值初筛')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              2.初筛
-            </button>
-            <button
-              onClick={() => handleRerunStep(3, '主张拆解')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              3.拆解
-            </button>
-            <button
-              onClick={() => handleRerunStep(4, '多语种检索')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              4.检索
-            </button>
-            <button
-              onClick={() => handleRerunStep(5, '出处追踪')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              5.出处
-            </button>
-            <button
-              onClick={() => handleRerunStep(6, '交叉验证')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              6.交叉
-            </button>
-            <button
-              onClick={() => handleRerunStep(7, '信源评价')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              7.信源
-            </button>
-            <button
-              onClick={() => handleRerunStep(8, '报告生成')}
-              className="px-2 py-1 bg-white hover:bg-slate-100 rounded border border-slate-200 text-slate-700 cursor-pointer"
-            >
-              8.报告
-            </button>
+            <span className="text-slate-400 font-medium mr-1">
+              {rerunningStep !== null ? `环节 ${rerunningStep} 重算中…` : '单环节重算:'}
+            </span>
+            {([[2, '初筛'], [3, '拆解'], [4, '检索'], [5, '出处'], [6, '交叉'], [7, '信源'], [8, '报告']] as [number, string][]).map(([n, label]) => (
+              <button
+                key={n}
+                onClick={() => handleRerunStep(n, STAGES.find((s) => s.num === n)?.name ?? '')}
+                disabled={rerunningStep !== null || isRunningAll}
+                className={`px-2 py-1 bg-white rounded border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
+                  rerunningStep === n ? 'text-blue-600 border-blue-300 animate-pulse' : 'hover:bg-slate-100 text-slate-700'
+                }`}
+              >
+                {n}.{label}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -704,7 +703,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                   <Copy className="w-3 h-3" /> 复制
                 </button>
               </div>
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-[12px] leading-relaxed text-slate-800 font-serif whitespace-pre-wrap">
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 text-[12px] leading-relaxed text-slate-800 font-serif whitespace-pre-wrap max-h-64 overflow-y-auto">
                 {caseData.clue.raw_text}
               </div>
             </div>
@@ -803,7 +802,15 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                     多模态图片真实性检测
                   </span>
                   <span className="px-2 py-0.5 rounded bg-purple-600 text-white font-bold text-[10.5px]">
-                    判定: {caseData.screening_result.image_analysis.suspected === 'ai_generated' ? '疑似AI生成' : '旧图二次剪辑'}
+                    判定: {
+                      ({
+                        real_scene: '真实现场图',
+                        ai_generated: '疑似AI生成',
+                        ps_edited: '疑似旧图篡改',
+                        old_image_reuse: '疑似旧图新用',
+                        unclear: '待人工判定',
+                      } as Record<string, string>)[caseData.screening_result.image_analysis.suspected] ?? '待人工判定'
+                    }
                   </span>
                 </div>
                 <p className="text-[11.5px] text-slate-700 leading-relaxed">

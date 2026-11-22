@@ -53,6 +53,14 @@ export function clearSavedToken() {
   sessionStorage.removeItem(TOKEN_KEY);
 }
 
+/** 401 凭证失效的全局广播事件(App 监听后统一登出回登录页) */
+export const AUTH_EXPIRED_EVENT = 'td:auth-expired';
+
+function notifyAuthExpired(message: string) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT, { detail: { message } }));
+}
+
 export interface ApiEnvelope<T = any> {
   code: number;
   message: string;
@@ -77,9 +85,11 @@ export async function apiRequest<T = any>(
 
     if (response.status === 401) {
       clearSavedToken();
+      const message = json?.message || '您的登录凭据已失效，请重新登录。';
+      notifyAuthExpired(message);
       return {
         code: 401,
-        message: json?.message || '您的登录凭据已失效，请重新登录。',
+        message,
         data: null as T,
       };
     }
@@ -88,6 +98,7 @@ export async function apiRequest<T = any>(
     }
     if (json.code === 401) {
       clearSavedToken();
+      notifyAuthExpired(json.message || '您的登录凭据已失效，请重新登录。');
     }
     return json;
   } catch (error) {
@@ -184,6 +195,17 @@ export interface EvidenceSummary {
   relations: Record<string, number>;
   sourceTypes: Record<string, number>;
   credibility: Record<string, number>;
+}
+
+export interface EvidenceItem {
+  id: number;
+  caseId: string;
+  name: string;
+  sourceOrg: string;
+  date: string;
+  relation: '支持' | '反驳' | '背景' | '待确认';
+  sourceType: '中方官方' | '中方媒体' | '国际媒体' | '外媒官方喉舌' | '事实核查机构' | '国际组织';
+  credibility: '高' | '较高' | '中' | '低';
 }
 
 export interface StatisticsPayload {
@@ -402,7 +424,7 @@ export const api = {
       body: JSON.stringify({ caseNos }),
     }),
 
-  evidence: () => apiRequest<{ list: any[]; summary: EvidenceSummary }>('/evidence'),
+  evidence: () => apiRequest<{ list: EvidenceItem[]; summary: EvidenceSummary; total?: number; truncated?: boolean }>('/evidence'),
 
   history: () => apiRequest<{ list: HistoryItemApi[] }>('/history'),
 

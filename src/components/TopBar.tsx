@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, Bell, Check, Menu, KeyRound, LogOut, ChevronDown, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { Search, Bell, Check, Minus, Menu, KeyRound, LogOut, ChevronDown, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import {
   TIME_RANGE_OPTIONS,
   TimeRangeKey,
@@ -7,6 +7,8 @@ import {
 } from '../data/dashboardData';
 import { AuthenticatedUser } from './LoginPage';
 import { api, clearSavedToken } from '../api/client';
+import type { SiteConfig } from '../api/client';
+import { useApiData } from '../api/hooks';
 
 interface TopBarProps {
   searchQuery: string;
@@ -38,6 +40,26 @@ export const TopBar: React.FC<TopBarProps> = ({
   const [showPwd, setShowPwd] = useState(false);
   const [pwdSaving, setPwdSaving] = useState(false);
   const [pwdError, setPwdError] = useState<string | null>(null);
+  const [pwdSuccess, setPwdSuccess] = useState(false);
+
+  // 服务能力状态灯(消费 getConfig 真实开关,未加载完显示中性灰)
+  const configQ = useApiData<SiteConfig>(() => api.getConfig(), []);
+  const aiFlags = configQ.data?.ai;
+  const statusOf = (id: string): boolean | undefined => {
+    if (!aiFlags) return undefined;
+    switch (id) {
+      case 'ark':
+        return aiFlags.llm;
+      case 'google':
+        return aiFlags.search;
+      case 'reverse-img':
+        return aiFlags.reverseImage;
+      case 'github-bed':
+        return aiFlags.githubBed;
+      default:
+        return undefined;
+    }
+  };
 
   // 点击外部关闭下拉(桌面/移动两处菜单共用 data-user-menu 标记)
   useEffect(() => {
@@ -143,10 +165,13 @@ export const TopBar: React.FC<TopBarProps> = ({
     try {
       const res = await api.changePassword(oldPassword, newPassword);
       if (res.code === 200) {
-        // 修改成功:清理会话回登录页,使用新密码重新登录
-        setPwdModal(false);
-        clearSavedToken();
-        onLogoutClick();
+        // 修改成功:先在弹窗内提示,再清理会话回登录页,避免无提示直接消失
+        setPwdSuccess(true);
+        setTimeout(() => {
+          setPwdModal(false);
+          clearSavedToken();
+          onLogoutClick();
+        }, 1600);
         return;
       }
       setPwdError(res.message || '修改失败,请稍后重试');
@@ -215,19 +240,31 @@ export const TopBar: React.FC<TopBarProps> = ({
           })}
         </div>
 
-        {/* System Status Indicators (visible on xl+) */}
+        {/* System Status Indicators (visible on xl+, 消费 getConfig 真实开关) */}
         <div className="hidden xl:flex items-center gap-4 pl-1 shrink-0">
-          {SYSTEM_STATUS_ITEMS.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center gap-1.5 text-[11.5px] text-slate-500 whitespace-nowrap"
-            >
-              <span className="w-3.5 h-3.5 rounded-full bg-emerald-50 border border-emerald-200 flex items-center justify-center text-[#10B981] shrink-0">
-                <Check className="w-2.5 h-2.5 stroke-[3]" />
-              </span>
-              <span>{item.label}</span>
-            </div>
-          ))}
+          {SYSTEM_STATUS_ITEMS.map((item) => {
+            const on = statusOf(item.id);
+            return (
+              <div
+                key={item.id}
+                className="flex items-center gap-1.5 text-[11.5px] text-slate-500 whitespace-nowrap"
+                title={on === undefined ? '状态加载中' : on ? '已启用' : '未启用/未配置'}
+              >
+                <span
+                  className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0 ${
+                    on === undefined
+                      ? 'bg-slate-50 border-slate-200 text-slate-300'
+                      : on
+                        ? 'bg-emerald-50 border-emerald-200 text-[#10B981]'
+                        : 'bg-slate-50 border-slate-200 text-slate-400'
+                  }`}
+                >
+                  {on === false ? <Minus className="w-2.5 h-2.5 stroke-[3]" /> : <Check className="w-2.5 h-2.5 stroke-[3]" />}
+                </span>
+                <span>{item.label}</span>
+              </div>
+            );
+          })}
         </div>
 
         {/* Right User & Action Controls (on mobile stays right-aligned in top row) */}
@@ -263,6 +300,13 @@ export const TopBar: React.FC<TopBarProps> = ({
               </button>
             </div>
             <form onSubmit={handleChangePassword} className="space-y-3 text-xs">
+              {pwdSuccess ? (
+                <div className="px-3 py-2.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 text-[11.5px] flex items-center gap-2">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>密码修改成功,即将退出登录,请使用新密码重新登录…</span>
+                </div>
+              ) : (
+                <>
               {pwdError ? (
                 <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-red-600 text-[11px] flex items-center gap-1.5">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
@@ -334,13 +378,14 @@ export const TopBar: React.FC<TopBarProps> = ({
                 <button
                   type="button"
                   onClick={() => setPwdModal(false)}
-                  className="px-4 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  disabled={pwdSuccess}
+                  className="px-4 py-1.5 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 cursor-pointer disabled:opacity-50"
                 >
                   取消
                 </button>
                 <button
                   type="submit"
-                  disabled={pwdSaving}
+                  disabled={pwdSaving || pwdSuccess}
                   className="px-4 py-1.5 bg-[#2563EB] text-white rounded-lg font-medium hover:bg-blue-700 disabled:bg-blue-400 cursor-pointer disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   {pwdSaving ? (
@@ -352,6 +397,8 @@ export const TopBar: React.FC<TopBarProps> = ({
                   )}
                 </button>
               </div>
+                </>
+              )}
             </form>
           </div>
         </div>

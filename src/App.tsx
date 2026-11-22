@@ -18,7 +18,7 @@ import { Sidebar } from './components/Sidebar';
 import { TopBar } from './components/TopBar';
 import { ScrollToTop } from './components/ScrollToTop';
 import { LoginPage, AuthenticatedUser } from './components/LoginPage';
-import { api, getSavedToken, setSavedToken, clearSavedToken } from './api/client';
+import { api, getSavedToken, setSavedToken, clearSavedToken, AUTH_EXPIRED_EVENT } from './api/client';
 import { useApiData } from './api/hooks';
 import type {
   DashboardMetricsPayload,
@@ -109,6 +109,9 @@ function AppShell() {
     return typeof window !== 'undefined' && Boolean(getSavedToken());
   });
   const [authChecking, setAuthChecking] = useState<boolean>(isAuthenticated);
+  // 身份加载失败(网络瞬断等,非 401/403): 保留登录态并提供重试,避免无限骨架
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authRetry, setAuthRetry] = useState(0);
 
   const [currentUser, setCurrentUser] = useState<AuthenticatedUser>({
     displayName: '加载中',
@@ -125,9 +128,26 @@ function AppShell() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTimeRange, setActiveTimeRange] = useState<TimeRangeKey>('today');
   const [bannerMessage, setBannerMessage] = useState<string | null>(null);
+  // 401 全局广播携带的提示文案,回登录页时透出
+  const [authExpiredMsg, setAuthExpiredMsg] = useState<string | null>(null);
 
   const navigate = useNavigate();
   const location = useLocation();
+
+  // 任一接口返回 401 时统一清登录态回登录页(client.ts apiRequest 广播),
+  // 避免用户停留在已失效会话的空态页面里继续操作
+  useEffect(() => {
+    const onAuthExpired = (e: Event) => {
+      const message =
+        (e as CustomEvent<{ message?: string }>).detail?.message ||
+        '登录状态已失效,请重新登录';
+      clearSavedToken();
+      setIsAuthenticated(false);
+      setAuthExpiredMsg(message);
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, onAuthExpired);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, onAuthExpired);
+  }, []);
 
   // 工作台数据按区块拆分三路并行请求(KPI / 列表 / 图表),
   // 教学体系无工作台权限时不发起请求,直接置空由骨架占位
@@ -157,6 +177,7 @@ function AppShell() {
     if (!isAuthenticated) return;
     let cancelled = false;
     setAuthChecking(true);
+    setAuthError(null);
     api.getUserInfo().then((res) => {
       if (cancelled) return;
       setAuthChecking(false);
@@ -171,16 +192,18 @@ function AppShell() {
           permissions: res.data.permissions ?? [],
         });
       } else if (res.code === 401 || res.code === 403) {
-        // 401 凭证失效 / 403 账号未接入或被停用:清理会话回登录页;
-        // 其余错误(网络瞬断等)保留登录态,刷新重试即可
+        // 401 凭证失效 / 403 账号未接入或被停用:清理会话回登录页
         clearSavedToken();
         setIsAuthenticated(false);
+      } else {
+        // 其余错误(网络瞬断等)保留登录态,显示错误态等待手动重试
+        setAuthError(res.message || '身份信息加载失败,请确认核查服务已启动');
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, [isAuthenticated, authRetry]);
 
   // ?autostart=1 自动用演示账号登录(保持旧的免登录直达体验)
   useEffect(() => {
@@ -216,8 +239,22 @@ function AppShell() {
     [currentUser.permissions]
   );
 
-  /** 路由守卫:权限未加载完成先显示加载态,无对应权限时重定向到落地页(后端同权限拦截为最终防线) */
+  /** 路由守卫:身份加载失败显示错误态+重试;权限未加载完成先显示加载态,无对应权限时重定向到落地页(后端同权限拦截为最终防线) */
   const guard = (perm: Permission, element: React.ReactNode) => {
+    if (authError) {
+      return (
+        <div className="flex flex-col items-center justify-center gap-3 py-24">
+          <span className="text-[13px] text-amber-700">⚠ {authError}</span>
+          <button
+            type="button"
+            onClick={() => setAuthRetry((n) => n + 1)}
+            className="px-4 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 text-[12px] font-medium cursor-pointer"
+          >
+            重新加载
+          </button>
+        </div>
+      );
+    }
     if (currentUser.permissions === undefined) {
       return <RouteFallback />;
     }
@@ -263,9 +300,11 @@ function AppShell() {
           path="/login"
           element={
             <LoginPage
+              sessionMessage={authExpiredMsg}
               onLoginSuccess={(user) => {
                 setCurrentUser(user);
                 setIsAuthenticated(true);
+                setAuthExpiredMsg(null);
               }}
             />
           }

@@ -27,12 +27,17 @@ export interface AuthenticatedUser {
 
 interface LoginPageProps {
   onLoginSuccess: (user: AuthenticatedUser) => void;
+  /** 会话失效等场景由 App 透传的提示(如 401 登出后的文案) */
+  sessionMessage?: string | null;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+// 演示账号(预填/快捷切换/重置凭证)仅在开发构建显示,生产构建不暴露
+const SHOW_DEMO = Boolean(import.meta.env?.DEV);
+
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMessage }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [username, setUsername] = useState('zhangming@zhentan.org');
-  const [password, setPassword] = useState('Zt@2026Admin');
+  const [username, setUsername] = useState(SHOW_DEMO ? 'zhangming@zhentan.org' : '');
+  const [password, setPassword] = useState(SHOW_DEMO ? 'Zt@2026Admin' : '');
   const [roleLabel, setRoleLabel] = useState('总编');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -458,6 +463,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </button>
             ))}
           </div>
+
+          {/* Session Expired Alert(401 全局登出后由 App 透传) */}
+          {sessionMessage && !errorMessage ? (
+            <div
+              role="status"
+              className="mt-5 px-3.5 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-[#B45309] text-[12.5px] flex items-center gap-2"
+            >
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{sessionMessage}</span>
+            </div>
+          ) : null}
 
           {/* Validation Error Alert */}
           {errorMessage ? (
@@ -909,7 +925,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           </form>
           )}
 
-          {/* Quick Account Switcher */}
+          {/* Quick Account Switcher(仅开发构建显示演示账号) */}
+          {SHOW_DEMO && (
           <div className="mt-6 pt-5 border-t border-slate-100">
             <div className="flex items-center justify-between gap-2 text-[11.5px]">
               <span className="text-slate-400 shrink-0">快捷演示账号：</span>
@@ -956,6 +973,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </div>
             </div>
           </div>
+          )}
         </div>
 
         {/* Bottom Studio Footer */}

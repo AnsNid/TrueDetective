@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   EvidenceItem,
-} from '../../data/viewsData';
+} from '../../api/client';
 import {
   Search,
   Filter,
@@ -26,15 +26,19 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
   const [sourceTypeFilter, setSourceTypeFilter] = useState<string>('全部信源');
   const [searchKey, setSearchKey] = useState('');
   const [copiedToast, setCopiedToast] = useState(false);
+  // 本地分页:首屏渲染条数,点"加载更多"逐步展开(筛选变化时重置)
+  const [visibleCount, setVisibleCount] = useState(80);
 
-  // 后端证据库(列表 + 服务端汇总)
-  const evidenceQuery = useApiData<{ list: EvidenceItem[]; summary: EvidenceSummary }>(() => api.evidence());
+  // 后端证据库(列表 + 服务端汇总;超 500 条时后端截断并如实标记)
+  const evidenceQuery = useApiData<{ list: EvidenceItem[]; summary: EvidenceSummary; total?: number; truncated?: boolean }>(() => api.evidence());
   const allEvidence = evidenceQuery.data?.list ?? [];
   const summary = evidenceQuery.data?.summary;
+  const truncated = Boolean(evidenceQuery.data?.truncated);
 
-  // 统计卡片(由后端数据计算)
-  const evidenceTotal = allEvidence.length;
+  // 统计卡片(由后端数据计算;total 为服务端全量口径)
+  const evidenceTotal = evidenceQuery.data?.total ?? allEvidence.length;
   const evidenceCaseCount = summary?.caseCount ?? new Set(allEvidence.map((e) => e.caseId)).size;
+  const sourceTypeCount = Object.keys(summary?.sourceTypes ?? {}).length;
   const relationCount = (rel: string) => allEvidence.filter((e) => e.relation === rel).length;
   const relationPct = (rel: string) => (evidenceTotal ? Math.round((relationCount(rel) / evidenceTotal) * 100) : 0);
 
@@ -77,6 +81,11 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
       return true;
     });
   }, [allEvidence, relationFilter, sourceTypeFilter, searchKey]);
+
+  // 筛选变化时恢复首屏条数
+  React.useEffect(() => {
+    setVisibleCount(80);
+  }, [relationFilter, sourceTypeFilter, searchKey]);
 
   const handleExport = () => {
     const header = ['案件编号', '证据名称', '来源机构', '信源类型', '发布日期', '关系', '可信度'];
@@ -153,9 +162,19 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
           </p>
         </div>
         <div className="text-right text-[11px] text-slate-400 tabular-nums">
-          最近同步 {new Date().toLocaleDateString('zh-CN')} · 信源评级每日刷新
+          {truncated
+            ? `共 ${evidenceTotal} 条 · 当前展示前 ${allEvidence.length} 条`
+            : `共 ${evidenceTotal} 条 · 实时汇总`}
         </div>
       </div>
+
+      {/* 截断如实提示(后端返回 truncated 时展示) */}
+      {truncated && (
+        <div className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-700 text-[11.5px] rounded-lg flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>证据共 {evidenceTotal} 条,已超单次展示上限,仅展示前 {allEvidence.length} 条;统计汇总仍基于全量数据。</span>
+        </div>
+      )}
 
       {/* 5 Top Metric Cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
@@ -311,7 +330,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
                         暂无符合条件的证据材料
                       </td>
                     </tr>
-                  ) : filteredEvidence.map((item) => (
+                  ) : filteredEvidence.slice(0, visibleCount).map((item) => (
                     <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-2.5 pl-4 pr-2 font-mono tabular-nums text-slate-600 whitespace-nowrap text-[11px]">
                         {onSelectCase ? (
@@ -350,6 +369,18 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
                       </td>
                     </tr>
                   ))}
+                  {filteredEvidence.length > visibleCount && (
+                    <tr>
+                      <td colSpan={7} className="px-3 py-2.5 text-center border-t border-slate-100">
+                        <button
+                          onClick={() => setVisibleCount((n) => n + 80)}
+                          className="px-3 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-600 text-[11.5px] font-medium transition-colors cursor-pointer"
+                        >
+                          加载更多(已显示 {visibleCount} / {filteredEvidence.length} 条)
+                        </button>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -357,7 +388,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
             {/* Table Footer */}
             <div className="px-4 py-2.5 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
               <div>
-                共 {evidenceTotal} 条证据 · 4 类关系 · 6 类信源 · 转载不计独立证据
+                共 {filteredEvidence.length} 条匹配 · {sourceTypeCount || '—'} 类信源 · 转载不计独立证据
               </div>
               <div className="flex items-center gap-2">
                 <button
