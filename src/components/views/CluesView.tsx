@@ -10,7 +10,6 @@ import {
   Info,
   Check,
   Link as LinkIcon,
-  Upload,
 } from 'lucide-react';
 import { api } from '../../api/client';
 import type { AuthenticatedUser } from '../LoginPage';
@@ -23,29 +22,20 @@ interface CluesViewProps {
 
 export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUser }) => {
   const [clueType, setClueType] = useState<'text' | 'image' | 'video' | 'audio'>('text');
-  const [title, setTitle] = useState(
-    '外媒称中国边境管控构成“系统性限制”，援引人权组织年度报告'
-  );
-  const [content, setContent] = useState(
-    'Human Rights Watch said in its annual report that China has turned border controls into "a routine governance tool", describing the border as "a prison for millions". The report cites no primary documentation for the characterization.'
-  );
-  const [translation, setTranslation] = useState(
-    '人权观察在年度报告中称，中国已将边境管控变成“常规治理工具”，并将边境形容为“数百万人的监狱”。报告未援引一手官方文件支持该定性。'
-  );
+  const [title, setTitle] = useState('');
+  const [content, setContent] = useState('');
+  const [translation, setTranslation] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [account, setAccount] = useState('');
+  const [publishTime, setPublishTime] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [platform, setPlatform] = useState('Human Rights Watch 官网');
-  const [account, setAccount] = useState('@hrw');
-  const [publishTime, setPublishTime] = useState('2026-01-15 08:00');
-  const [sourceUrl, setSourceUrl] = useState(
-    'https://www.hrw.org/world-report/2026/country-chapters/china'
-  );
-  const [priority, setPriority] = useState('高 (涉人权组织指控)');
+  const [priority, setPriority] = useState('中 (常规核查)');
   const [assignee, setAssignee] = useState('');
   const [relatedCase, setRelatedCase] = useState('未关联');
   const [isDraftSaved, setIsDraftSaved] = useState(false);
   const [submittedToast, setSubmittedToast] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
-  const [ocrDetected, setOcrDetected] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [translateError, setTranslateError] = useState<string | null>(null);
@@ -57,12 +47,12 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
   >([]);
   const [submitterLabel, setSubmitterLabel] = useState('当前登录账号');
 
-  const DRAFT_KEY = 'detective-clue-draft';
+  const draftKey = `detective-clue-draft:${currentUser?.uid ?? 'anonymous'}`;
 
   // 草稿:本地暂存(标题/内容/译文等),提交成功后清除
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(DRAFT_KEY);
+      const raw = localStorage.getItem(draftKey);
       if (raw) {
         const draft = JSON.parse(raw);
         if (draft.title) setTitle(draft.title);
@@ -71,6 +61,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
         if (draft.platform) setPlatform(draft.platform);
         if (draft.account) setAccount(draft.account);
         if (draft.sourceUrl) setSourceUrl(draft.sourceUrl);
+        if (draft.imageUrl) setImageUrl(draft.imageUrl);
         if (draft.priority) setPriority(draft.priority);
         if (draft.savedAt) setDraftSavedAt(draft.savedAt);
       }
@@ -78,7 +69,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
       // ignore
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [draftKey]);
 
   // 工作室体系:负责人候选取后端成员与实时负载;教学体系负责人固定为本人,不拉取成员列表
   const canAssign = hasPerm(currentUser?.permissions, 'users.view');
@@ -140,25 +131,13 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
     }
   };
 
-  const handlePasteContent = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const items = e.clipboardData.items;
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.indexOf('image') !== -1) {
-        // 图片粘贴:提取真实图片并转为 objectURL 供预览(上传服务未接入,提交时以图片说明为准)
-        const file = items[i].getAsFile();
-        if (file) {
-          setOcrDetected(true);
-          setClueType('image');
-          setImageUrl(URL.createObjectURL(file));
-          setTimeout(() => setOcrDetected(false), 3000);
-        }
-      }
-    }
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
+    if (clueType !== 'text') {
+      setSubmitError('媒体文件上传尚未接入,请改用文本或原文链接提交,避免丢失图片/音视频材料');
+      return;
+    }
     setSubmitError(null);
     setSubmitting(true);
     try {
@@ -167,11 +146,11 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
         content: content.trim(),
         translation: translation.trim(),
         clueType,
-        imageUrl: imageUrl.trim().startsWith('blob:') ? '' : imageUrl.trim(),
         platform: platform.trim(),
         account: account.trim(),
         publishTime: publishTime.trim(),
         sourceUrl: sourceUrl.trim(),
+        imageUrl: imageUrl.trim(),
         priority,
         assignee,
         relatedCase,
@@ -179,7 +158,7 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
       if (res.code === 200 && res.data?.caseNo) {
         // 成功才提示(避免提交期间/失败瞬间闪现"提交成功")
         setSubmittedToast(true);
-        localStorage.removeItem(DRAFT_KEY);
+        localStorage.removeItem(draftKey);
         setDraftSavedAt(null);
         if (onSuccessSubmit) {
           onSuccessSubmit(res.data.caseNo, title.trim());
@@ -197,8 +176,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
   const handleSaveDraft = () => {
     const savedAt = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
     localStorage.setItem(
-      DRAFT_KEY,
-      JSON.stringify({ title, content, translation, platform, account, sourceUrl, priority, savedAt })
+      draftKey,
+      JSON.stringify({ title, content, translation, platform, account, sourceUrl, imageUrl, priority, savedAt })
     );
     setDraftSavedAt(savedAt);
     setIsDraftSaved(true);
@@ -318,6 +297,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
                 {/* Image */}
                 <div
                   onClick={() => setClueType('image')}
+                  aria-disabled="true"
+                  title="媒体上传与反向搜图尚未接入,请先使用文本/链接核查"
                   className={`p-2.5 rounded-lg border cursor-pointer transition-all relative ${
                     clueType === 'image'
                       ? 'border-[#2563EB] bg-blue-50/40 text-blue-900 shadow-xs'
@@ -340,7 +321,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
 
                 {/* Video */}
                 <div
-                  onClick={() => setClueType('video')}
+                  aria-disabled="true"
+                  title="请粘贴转写文本并使用文本核查"
                   className={`p-2.5 rounded-lg border cursor-pointer transition-all relative ${
                     clueType === 'video'
                       ? 'border-[#2563EB] bg-blue-50/40 text-blue-900 shadow-xs'
@@ -363,7 +345,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
 
                 {/* Audio */}
                 <div
-                  onClick={() => setClueType('audio')}
+                  aria-disabled="true"
+                  title="请粘贴转写文本并使用文本核查"
                   className={`p-2.5 rounded-lg border cursor-pointer transition-all relative ${
                     clueType === 'audio'
                       ? 'border-[#2563EB] bg-blue-50/40 text-blue-900 shadow-xs'
@@ -390,29 +373,21 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-[11px] font-semibold text-slate-700">
-                  原文内容 (外文原文或截图) <span className="text-rose-500">*</span>
+                  原文内容 (外文原文或转写文本) <span className="text-rose-500">*</span>
                 </label>
-                <span className="text-[10px] text-blue-600 font-medium">
-                  支持直接粘贴截图 (Ctrl+V) 预览
-                </span>
+                <span className="text-[10px] text-slate-500">媒体上传尚未接入,音视频请先粘贴转写文本</span>
               </div>
               <textarea
                 rows={3}
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
-                onPaste={handlePasteContent}
                 required
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[12px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
-                placeholder="粘贴待核查的原文或截图 (Ctrl+V) 也可以直接输入外文，系统将自动拆解事实主张..."
+                placeholder="粘贴待核查的外文原文或音视频转写文本,系统将自动拆解事实主张..."
               />
-              {ocrDetected && (
-                <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-indigo-700 text-[11px] flex items-center gap-1.5 mt-1.5 animate-in fade-in">
-                  <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
-                  <span>已识别剪贴板图片！已切换为图片线索并本地预览,请在下方补充图片说明(自动 OCR 暂未接入)。</span>
-                </div>
-              )}
+
               <div className="text-[10px] text-slate-400 mt-1">
-                粘贴外文原文或截图;截图仅本地预览,提交时以图片说明文字进入核查
+                粘贴外文原文或音视频转写文本；原始出处链接可与正文一起提交
               </div>
             </div>
 
@@ -445,13 +420,13 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
               </div>
               <div>
                 <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                  图片公开链接 <span className="text-slate-400 font-normal">(填了可直接识图)</span>
+                  图片公开链接 <span className="text-slate-400 font-normal">(随线索保存,当前不执行识图)</span>
                 </label>
                 <input
                   type="text"
                   value={imageUrl}
                   onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder="https://... 未填时将经 GitHub 图床自动转公开链接"
+                  placeholder="https://...（仅保存链接，不会自动识图）"
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 text-[11.5px] focus:outline-none focus:ring-1 focus:ring-blue-500 focus:bg-white"
                 />
               </div>
@@ -520,50 +495,8 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
               </div>
             </div>
 
-            {/* Drag & Drop Upload */}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
-                上传图片 / 截图{' '}
-                <span className="text-slate-400 font-normal">
-                  (用于图片溯源;文件服务未接入,当前仅本地预览,提交以图片地址/说明为准)
-                </span>
-              </label>
-              <label
-                className="block border border-dashed border-slate-300 rounded-lg p-5 text-center bg-slate-50/50 hover:bg-slate-50 cursor-pointer transition-colors"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const file = e.dataTransfer.files?.[0];
-                  if (file && file.type.startsWith('image/')) {
-                    setClueType('image');
-                    setImageUrl(URL.createObjectURL(file));
-                  }
-                }}
-              >
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) {
-                      setClueType('image');
-                      setImageUrl(URL.createObjectURL(file));
-                    }
-                  }}
-                />
-                <div className="text-[11.5px] text-slate-500 flex items-center justify-center gap-1.5">
-                  <Upload className="w-3.5 h-3.5 text-slate-400" />
-                  + 拖拽图片到此处、点击选择文件，或直接在上方原文框按 Ctrl+V 粘贴截图
-                </div>
-                {imageUrl && (
-                  <img
-                    src={imageUrl}
-                    alt="待上传截图预览"
-                    className="max-h-40 mx-auto mt-2.5 rounded border border-slate-200 object-contain"
-                  />
-                )}
-              </label>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-[11px] text-amber-700">
+              图片、视频、音频上传及 OCR/反向搜图尚未接入。当前请提交文本、转写文本或原始链接；媒体材料不会被静默丢弃。
             </div>
 
             {/* Priority, Assignee, Related Case */}
@@ -654,22 +587,20 @@ export const CluesView: React.FC<CluesViewProps> = ({ onSuccessSubmit, currentUs
               </div>
             </div>
 
-            {/* Pre-submit checks */}
-            <div className="bg-emerald-50/50 rounded-lg p-2.5 border border-emerald-100/80">
-              <div className="text-[11px] font-bold text-emerald-800 mb-1.5">提交前自检</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[10.5px] text-emerald-700">
-                <div className="flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>原文为外文，已保留原始链接</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>已区分事实层与指控层表述</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>已附原始出处时间与平台</span>
-                </div>
+            {/* Pre-submit checks:只展示当前表单真实状态 */}
+            <div className="bg-slate-50 rounded-lg p-2.5 border border-slate-200/80">
+              <div className="text-[11px] font-bold text-slate-700 mb-1.5">提交前自检</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 text-[10.5px] text-slate-600">
+                {[
+                  [!!content.trim(), '原文或转写文本已填写'],
+                  [!!sourceUrl.trim(), '已填写原始链接'],
+                  [!!platform.trim() && !!publishTime.trim(), '已填写来源平台与发布时间'],
+                ].map(([ok, label]) => (
+                  <div key={String(label)} className={`flex items-center gap-1 ${ok ? 'text-emerald-700' : 'text-slate-400'}`}>
+                    {ok ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Clock className="w-3.5 h-3.5" />}
+                    <span>{label}</span>
+                  </div>
+                ))}
               </div>
             </div>
 

@@ -3,7 +3,7 @@
  *
  * - 开发环境 base_uri: http://127.0.0.1:9602/api(detective 独立服务)
  * - 构建/生产 base_uri: /api(经网关反代)
- * - 鉴权: x-token: Bearer ${token},token 全局唯一存储于 localStorage `x-token`
+ * - 鉴权: x-token: Bearer ${token},token 由本地/会话存储管理,URL token 仅临时导入
  * - 信封: { code, message, data },200 成功 / 201 业务失败 / 401 凭证失效 / 403 无权限
  */
 
@@ -20,20 +20,43 @@ export const BASE_URI =
 
 export const TOKEN_KEY = 'x-token';
 
+function scrubTokenFromUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete(TOKEN_KEY);
+    if (url.hash.includes('?')) {
+      const hashPath = url.hash.slice(1);
+      const [path, query = ''] = hashPath.split('?');
+      const params = new URLSearchParams(query);
+      params.delete(TOKEN_KEY);
+      const cleanQuery = params.toString();
+      url.hash = `${path}${cleanQuery ? `?${cleanQuery}` : ''}`;
+    }
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch {
+    // 历史 API 不可用时不影响本次认证
+  }
+}
+
 export function getSavedToken(): string {
   if (typeof window === 'undefined') return '';
-  try {
-    const fromQuery = new URLSearchParams(window.location.search).get(TOKEN_KEY);
-    const fromHashQuery = window.location.hash.includes('?')
-      ? new URLSearchParams(window.location.hash.split('?')[1]).get(TOKEN_KEY)
-      : null;
-    const urlToken = fromQuery || fromHashQuery;
-    if (urlToken) {
-      localStorage.setItem(TOKEN_KEY, urlToken);
-      return urlToken;
+  const urlToken = (() => {
+    try {
+      const fromQuery = new URLSearchParams(window.location.search).get(TOKEN_KEY);
+      const fromHashQuery = window.location.hash.includes('?')
+        ? new URLSearchParams(window.location.hash.split('?')[1]).get(TOKEN_KEY)
+        : null;
+      return fromQuery || fromHashQuery || '';
+    } catch {
+      return '';
     }
-  } catch {
-    // ignore parse errors
+  })();
+  if (urlToken) {
+    scrubTokenFromUrl();
+    localStorage.removeItem(TOKEN_KEY);
+    document.cookie = `${TOKEN_KEY}=; Max-Age=0; Path=/; SameSite=Lax`;
+    sessionStorage.setItem(TOKEN_KEY, urlToken);
+    return urlToken;
   }
   return (
     localStorage.getItem(TOKEN_KEY) ||
@@ -42,15 +65,21 @@ export function getSavedToken(): string {
   );
 }
 
-export function setSavedToken(token: string) {
+export function setSavedToken(token: string, remember = true) {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(TOKEN_KEY);
+  // 服务端 Set-Cookie 仅作为兼容来源,前端会话统一由所选存储管理
+  document.cookie = `${TOKEN_KEY}=; Max-Age=0; Path=/; SameSite=Lax`;
+  (remember ? localStorage : sessionStorage).setItem(TOKEN_KEY, token);
 }
 
 export function clearSavedToken() {
   if (typeof window === 'undefined') return;
   localStorage.removeItem(TOKEN_KEY);
   sessionStorage.removeItem(TOKEN_KEY);
+  document.cookie = `${TOKEN_KEY}=; Max-Age=0; Path=/; SameSite=Lax`;
+  scrubTokenFromUrl();
 }
 
 /** 401 凭证失效的全局广播事件(App 监听后统一登出回登录页) */
@@ -219,7 +248,7 @@ export interface StatisticsPayload {
     dateTo: string;
     concluded: number;
   };
-  conclusionBars: { label: string; val: number; color: string }[];
+  conclusionBars: { label: string; value: number; color: string }[];
   funnel: { name: string; count: number; w: string }[];
   weeklyTrends: { labels: string[]; clues: number[]; closed: number[] };
   memberOutput: {
@@ -387,7 +416,7 @@ export const api = {
     }),
 
   /** 导出核查报告文件(pdf/docx),带鉴权头下载 blob 并触发保存 */
-  exportReport: async (caseNo: string, format: 'pdf' | 'docx'): Promise<boolean> => {
+  exportReport: async (caseNo: string, format: 'pdf' | 'docx'): Promise<{ ok: boolean; message: string }> => {
     const token = getSavedToken();
     const headers: Record<string, string> = {};
     if (token) headers['x-token'] = `Bearer ${token}`;
@@ -396,17 +425,25 @@ export const api = {
         `${BASE_URI}/cases/${encodeURIComponent(caseNo)}/export?format=${format}`,
         { headers }
       );
-      if (!res.ok) return false;
+      if (res.status === 401) {
+        clearSavedToken();
+        notifyAuthExpired('登录状态已失效，请重新登录。');
+        return { ok: false, message: '登录状态已失效，请重新登录。' };
+      }
+      if (!res.ok) {
+        const json = (await res.json().catch(() => null)) as ApiEnvelope<unknown> | null;
+        return { ok: false, message: json?.message || `导出失败(${res.status})` };
+      }
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
       a.download = `${caseNo}-核查报告.${format}`;
       a.click();
-      URL.revokeObjectURL(url);
-      return true;
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      return { ok: true, message: `已导出${format === 'pdf' ? ' PDF' : ' Word'}版核查报告` };
     } catch {
-      return false;
+      return { ok: false, message: '网络连接失败，请稍后重试' };
     }
   },
 

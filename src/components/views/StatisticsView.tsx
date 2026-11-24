@@ -52,8 +52,8 @@ export const StatisticsView: React.FC = () => {
 
   // 结论分布
   const conclusionBars = stats?.conclusionBars ?? [];
-  const maxConclusionVal = Math.max(...conclusionBars.map((b) => b.val), 1);
-  const misleadingCount = conclusionBars.find((b) => b.label === '误导')?.val ?? 0;
+  const maxConclusionVal = Math.max(...conclusionBars.map((b) => b.value), 1);
+  const misleadingCount = conclusionBars.find((b) => b.label === '误导')?.value ?? 0;
   // 已定论(与后端 overview.concluded 同口径)
   const concludedTotal = overview?.concluded ?? 0;
 
@@ -193,13 +193,13 @@ export const StatisticsView: React.FC = () => {
               conclusionBars.map((bar) => (
                 <div key={bar.label} className="flex-1 flex flex-col items-center gap-1">
                   <span className="text-[10px] font-bold text-slate-700 tabular-nums">
-                    {bar.val}
+                    {bar.value}
                   </span>
                   <div className="w-full bg-slate-100 rounded-t h-24 flex items-end">
                     <div
                       className="w-full rounded-t transition-all"
                       style={{
-                        height: `${Math.max(3, Math.round((bar.val / maxConclusionVal) * 100))}%`,
+                        height: `${Math.max(3, Math.round((bar.value / maxConclusionVal) * 100))}%`,
                         backgroundColor: bar.color,
                       }}
                     ></div>

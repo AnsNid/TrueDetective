@@ -40,6 +40,7 @@ export type Permission =
   | 'tasks.view'
   | 'case.view'
   | 'case.review'
+  | 'case.execute'
   | 'case.delete'
   | 'evidence.view'
   | 'history.view'

@@ -32,8 +32,10 @@ const TEACHING_ROLES: { code: RoleCode; label: string; hint: string }[] = [
   { code: 'student', label: '学生', hint: '仅本人新建任务' },
 ];
 
-const roleOptions = (system: RoleSystem) =>
-  system === 'teaching' ? TEACHING_ROLES : STUDIO_ROLES;
+const roleOptions = (system: RoleSystem, canManageSuper = false) => {
+  const roles = system === 'teaching' ? TEACHING_ROLES : STUDIO_ROLES;
+  return canManageSuper ? roles : roles.filter((role) => role.code !== 'super_admin');
+};
 
 interface EditFormState {
   id: number;
@@ -65,6 +67,7 @@ interface UsersViewProps {
 }
 
 export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
+  const canManageSuper = currentUser?.role === 'super_admin';
   const [systemFilter, setSystemFilter] = useState<'全部' | RoleSystem>('全部');
   const [members, setMembers] = useState<MemberItemApi[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
@@ -586,7 +589,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                       <td className="py-2.5 px-3 whitespace-nowrap text-slate-400 tabular-nums">{m.lastActive}</td>
                       <td className="py-2.5 pr-4 pl-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5 text-[11px]">
-                          {canManage ? (
+                          {canManage && (canManageSuper || m.role !== 'super_admin') ? (
                             <>
                               <button
                                 onClick={() =>
@@ -634,7 +637,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                               </button>
                             </>
                           ) : (
-                            <span className="text-slate-300">管理需总编/负责人</span>
+                            <span className="text-slate-300">{canManage ? '仅总编可管理' : '管理需总编/负责人'}</span>
                           )}
                         </div>
                       </td>
@@ -798,7 +801,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                   onChange={(e) => setAddForm({ ...addForm, role: e.target.value })}
                   className="w-full px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                 >
-                  {roleOptions(addForm.roleSystem).map((r) => (
+                  {roleOptions(addForm.roleSystem, canManageSuper).map((r) => (
                     <option key={r.code} value={r.code}>
                       {r.label} ({r.hint})
                     </option>
@@ -837,7 +840,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                 <label className="block text-slate-700 font-semibold mb-1">
                   初始密码{' '}
                   <span className="text-slate-400 font-normal">
-                    (留空:{addForm.roleSystem === 'studio' ? '默认 Zt@2026' : '随机生成,仅本次显示'})
+                    (留空:随机生成安全密码,仅本次显示)
                   </span>
                 </label>
                 <input
@@ -930,7 +933,7 @@ export const UsersView: React.FC<UsersViewProps> = ({ currentUser }) => {
                     onChange={(e) => setEditModal({ ...editModal, role: e.target.value })}
                     className="flex-1 px-3 py-1.5 border border-slate-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500"
                   >
-                    {roleOptions(editModal.roleSystem).map((r) => (
+                    {roleOptions(editModal.roleSystem, canManageSuper).map((r) => (
                       <option key={r.code} value={r.code}>
                         {r.label}
                       </option>

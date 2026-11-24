@@ -51,7 +51,7 @@ test('computeRadarPolygonPoints computes 6 vertices with top vertex on centerX',
 });
 
 test('validateLoginCredentials rejects empty username or short password and accepts valid input', () => {
-  const emptyUser = validateLoginCredentials('   ', 'Zt@2026Admin');
+  const emptyUser = validateLoginCredentials('   ', 'StrongPass!2026');
   assert.equal(emptyUser.valid, false);
   assert.ok(emptyUser.error?.includes('账号'));
 
@@ -59,9 +59,9 @@ test('validateLoginCredentials rejects empty username or short password and acce
   assert.equal(shortPass.valid, false);
   assert.ok(shortPass.error?.includes('6 位'));
 
-  const validAdmin = validateLoginCredentials('zhangming@zhentan.org', 'Zt@2026Admin', '管理员');
+  const validAdmin = validateLoginCredentials('analyst@example.com', 'StrongPass!2026', '管理员');
   assert.equal(validAdmin.valid, true);
-  assert.equal(validAdmin.displayName, '张明');
+  assert.equal(validAdmin.displayName, 'analyst');
   assert.equal(validAdmin.roleLabel, '管理员');
 });
 

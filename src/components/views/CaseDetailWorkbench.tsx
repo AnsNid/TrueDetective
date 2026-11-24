@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -27,7 +27,7 @@ import {
 import {
   FullCaseDetail,
 } from '../../data/caseDetailsData';
-import { api, clearSavedToken } from '../../api/client';
+import { api } from '../../api/client';
 import { AuthenticatedUser } from '../LoginPage';
 import { hasPerm } from '../../auth/permissions';
 
@@ -91,6 +91,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   const [revisedConclusion, setRevisedConclusion] = useState('');
   const [revisedConfidence, setRevisedConfidence] = useState('');
   const [checkItems, setCheckItems] = useState<{ [key: string]: boolean }>({});
+  const caseMutationSeq = useRef(0);
   // 审核清单由后端下发,加载后初始化勾选;清单为空时清空勾选,避免跨案件残留
   useEffect(() => {
     const checklist: string[] = (loadedCase as any)?.review_checklist || [];
@@ -120,7 +121,13 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
   // One-click Auto Verification (Steps 2-8, 逐环节调用后端流水线)
   const handleRunAutoPipeline = async () => {
-    if (isRunningAll) return;
+    if (isRunningAll || !hasPerm(currentUser.permissions, 'case.execute')) return;
+    const from = Math.max(2, caseData.stage + 1);
+    if (from > 8) {
+      triggerToast('自动核查环节已完成,请进入人工审核');
+      return;
+    }
+    const seq = ++caseMutationSeq.current;
     setIsRunningAll(true);
     triggerToast('开始执行全流程自动核查（环节 2-8）...');
 
@@ -133,27 +140,22 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
       7: '信源评价',
       8: '报告生成',
     };
-    const from = Math.max(2, caseData.stage + 1);
-
     try {
-      let allDone = true;
+      let completed = true;
       for (let step = from; step <= 8; step++) {
+        if (seq !== caseMutationSeq.current) return;
         setRunningStepMsg(`正在执行: 环节 ${step} · ${stepNames[step]}...`);
         const res = await api.runPipeline(caseData.case_no, step);
+        if (seq !== caseMutationSeq.current) return;
         if (res.code === 200 && res.data?.detail) {
           setLoadedCase(res.data.detail as FullCaseDetail);
-        } else if (res.code === 401) {
-          clearSavedToken();
-          triggerToast('登录凭证已失效,请重新登录后操作');
-          allDone = false;
-          break;
         } else {
           triggerToast(res.message || `环节 ${step} 执行失败`);
-          allDone = false;
+          completed = false;
           break;
         }
       }
-      if (allDone) {
+      if (completed) {
         triggerToast('自动核查完成！已生成报告，等待环节 9 人工审核终审。');
       }
     } finally {
@@ -167,11 +169,13 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
   // Re-run single step (调用后端重算并持久化)
   const handleRerunStep = async (stepNum: number, stepName: string) => {
-    if (rerunningStep !== null || isRunningAll) return;
+    if (rerunningStep !== null || isRunningAll || !hasPerm(currentUser.permissions, 'case.execute')) return;
+    const seq = ++caseMutationSeq.current;
     setRerunningStep(stepNum);
     triggerToast(`正在重新执行环节 ${stepNum}：${stepName}...`);
     try {
       const res = await api.runPipeline(caseData.case_no, stepNum);
+      if (seq !== caseMutationSeq.current) return;
       if (res.code === 200 && res.data?.detail) {
         setLoadedCase(res.data.detail as FullCaseDetail);
         triggerToast(`环节 ${stepNum} (${stepName}) 重新计算完成！`);
@@ -195,6 +199,13 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
       .filter(([_, checked]) => checked)
       .map(([key]) => key);
 
+    if (!Object.values(checkItems).some(Boolean)) {
+      triggerToast('请至少完成一项核查规范检查');
+      return;
+    }
+    if (!hasPerm(currentUser.permissions, 'case.review')) return;
+    const seq = ++caseMutationSeq.current;
+
     setSubmittingReview(true);
     try {
       const res = await api.submitReview(caseData.case_no, {
@@ -204,6 +215,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         conclusion: revisedConclusion,
         confidence: revisedConfidence,
       });
+      if (seq !== caseMutationSeq.current) return;
       if (res.code === 200 && res.data?.detail) {
         const detail = res.data.detail as FullCaseDetail;
         setLoadedCase(detail);
@@ -227,19 +239,25 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
   };
 
   // Copy text helper
-  const handleCopyText = (text: string) => {
-    navigator.clipboard.writeText(text);
-    triggerToast('已复制到剪贴板');
+  const handleCopyText = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      triggerToast('已复制到剪贴板');
+    } catch {
+      triggerToast('复制失败,请手动选择文本');
+    }
   };
 
   // ===== 报告导出(PDF / Word,后端文件流) =====
   const [exporting, setExporting] = useState<'' | 'pdf' | 'docx'>('');
   const handleExport = async (format: 'pdf' | 'docx') => {
     if (exporting) return;
+    const seq = ++caseMutationSeq.current;
     setExporting(format);
     try {
-      const ok = await api.exportReport(caseId, format);
-      triggerToast(ok ? `已导出${format === 'pdf' ? ' PDF' : ' Word'}版核查报告` : '导出失败,请稍后重试');
+      const result = await api.exportReport(caseId, format);
+      if (seq !== caseMutationSeq.current) return;
+      triggerToast(result.message);
     } finally {
       setExporting('');
     }
@@ -255,6 +273,27 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     conclusion: '',
     confidence: '',
   });
+  const reportDirty = reportEditing && !!loadedCase?.report && (
+    reportDraft.preliminary_conclusion !== loadedCase.report.preliminary_conclusion ||
+    reportDraft.summary !== loadedCase.report.summary ||
+    reportDraft.conclusion !== loadedCase.report.conclusion ||
+    reportDraft.confidence !== loadedCase.report.confidence
+  );
+
+  useEffect(() => {
+    if (!reportDirty) return;
+    const warnBeforeLeave = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeLeave);
+    return () => window.removeEventListener('beforeunload', warnBeforeLeave);
+  }, [reportDirty]);
+
+  const requestBack = () => {
+    if (reportDirty && !window.confirm('报告修改尚未保存,确定离开当前案件吗？')) return;
+    onBack();
+  };
 
   const openReportEditor = () => {
     if (!caseData.report) return;
@@ -269,10 +308,12 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
   const handleSaveReport = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (savingReport) return;
+    if (savingReport || !hasPerm(currentUser.permissions, 'case.execute')) return;
+    const seq = ++caseMutationSeq.current;
     setSavingReport(true);
     try {
       const res = await api.updateReport(caseId, reportDraft);
+      if (seq !== caseMutationSeq.current) return;
       if (res.code === 200 && res.data?.detail) {
         setLoadedCase(res.data.detail);
         setReportEditing(false);
@@ -287,10 +328,15 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
 
   /** 报告修改完成 -> 重新提交人工审核(工作室案件从头逐级重审) */
   const handleSubmitReport = async () => {
-    if (submittingReport) return;
+    if (reportEditing || submittingReport || !hasPerm(currentUser.permissions, 'case.execute')) {
+      if (reportEditing) triggerToast('请先保存或取消报告修改');
+      return;
+    }
+    const seq = ++caseMutationSeq.current;
     setSubmittingReport(true);
     try {
       const res = await api.submitReport(caseId);
+      if (seq !== caseMutationSeq.current) return;
       if (res.code === 200 && res.data?.detail) {
         setLoadedCase(res.data.detail);
         triggerToast('已重新提交人工审核,从「成员」级重新逐级审核');
@@ -351,7 +397,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             </button>
             <button
               type="button"
-              onClick={onBack}
+              onClick={requestBack}
               className="text-[12px] text-slate-500 hover:text-slate-700 underline cursor-pointer"
             >
               返回列表
@@ -391,9 +437,11 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
     caseData.report_editing !== true &&
     (!isStudioCase || isSuper || myReviewLevel === currentReviewLevel);
   const canManage = hasPerm(currentUser.permissions, 'case.delete');
+  const canExecute = hasPerm(currentUser.permissions, 'case.execute');
   const isImageClue = caseData.clue.content_type === 'image';
   const lastReturnedReview = (caseData.reviews ?? []).find((r) => r.action === 'returned');
   const canEditReport =
+    canExecute &&
     !!caseData.report &&
     caseData.status !== 'done' &&
     (caseData.report_editing === true || (caseData.reviews ?? []).length === 0);
@@ -432,7 +480,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
       <div className="bg-white border border-slate-200/90 rounded-xl p-4 shadow-xs flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2.5">
           <button
-            onClick={onBack}
+            onClick={requestBack}
             className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11.5px] font-medium transition-colors cursor-pointer"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
@@ -452,7 +500,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleRunAutoPipeline}
-            disabled={isRunningAll}
+            disabled={isRunningAll || !canExecute}
+            title={canExecute ? '从当前进度继续执行环节 2-8' : '当前角色无权执行自动核查'}
             className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[12px] font-semibold text-white shadow-xs transition-colors cursor-pointer ${
               isRunningAll
                 ? 'bg-blue-400 cursor-not-allowed'
@@ -489,7 +538,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
             </>
           )}
 
-          {caseData.status === 'done' && hasPerm(currentUser.permissions, 'case.review') && (
+          {caseData.status === 'done' && isStudioCase && hasPerm(currentUser.permissions, 'case.review') && (
             <button
               onClick={handleDeposit}
               disabled={depositing}
@@ -559,7 +608,8 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
               <button
                 key={n}
                 onClick={() => handleRerunStep(n, STAGES.find((s) => s.num === n)?.name ?? '')}
-                disabled={rerunningStep !== null || isRunningAll}
+                disabled={rerunningStep !== null || isRunningAll || !canExecute || n > caseData.stage + 1}
+                title={!canExecute ? '当前角色无权执行核查' : n > caseData.stage + 1 ? '请先完成前置环节' : '重新计算此环节'}
                 className={`px-2 py-1 bg-white rounded border border-slate-200 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${
                   rerunningStep === n ? 'text-blue-600 border-blue-300 animate-pulse' : 'hover:bg-slate-100 text-slate-700'
                 }`}
@@ -1198,7 +1248,7 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                     <button
                       type="button"
                       onClick={handleSubmitReport}
-                      disabled={submittingReport}
+                      disabled={submittingReport || reportEditing || !canExecute}
                       className="px-3 py-1 rounded bg-[#2563EB] hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-[11.5px] transition-colors cursor-pointer disabled:cursor-not-allowed"
                     >
                       {submittingReport ? '提交中…' : '修改完成,重新提交人工审核'}
@@ -1259,7 +1309,11 @@ export const CaseDetailWorkbench: React.FC<CaseDetailWorkbenchProps> = ({
                   <div className="flex justify-end gap-2">
                     <button
                       type="button"
-                      onClick={() => setReportEditing(false)}
+                      onClick={() => {
+                        if (!reportDirty || window.confirm('报告修改尚未保存,确定取消吗？')) {
+                          setReportEditing(false);
+                        }
+                      }}
                       className="px-3 py-1 border border-slate-300 rounded-lg text-slate-600 hover:bg-slate-50 text-[11.5px] cursor-pointer"
                     >
                       取消

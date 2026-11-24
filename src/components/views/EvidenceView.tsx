@@ -39,7 +39,7 @@ export const EvidenceView: React.FC<EvidenceViewProps> = ({ onSelectCase }) => {
   const evidenceTotal = evidenceQuery.data?.total ?? allEvidence.length;
   const evidenceCaseCount = summary?.caseCount ?? new Set(allEvidence.map((e) => e.caseId)).size;
   const sourceTypeCount = Object.keys(summary?.sourceTypes ?? {}).length;
-  const relationCount = (rel: string) => allEvidence.filter((e) => e.relation === rel).length;
+  const relationCount = (rel: string) => summary?.relations?.[rel] ?? 0;
   const relationPct = (rel: string) => (evidenceTotal ? Math.round((relationCount(rel) / evidenceTotal) * 100) : 0);
 
   // 争议对比:取最有代表性的支持 vs 反驳/待确认证据

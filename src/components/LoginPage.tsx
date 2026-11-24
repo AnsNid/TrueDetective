@@ -10,10 +10,11 @@ import {
   Loader2,
 } from 'lucide-react';
 import { validateLoginCredentials } from '../utils/dashboardLogic';
-import { api, setSavedToken, TOKEN_KEY } from '../api/client';
+import { api, setSavedToken } from '../api/client';
 import loginBgUrl from '../assets/images/login_verification_bg_1794044224066.jpg';
 
 export interface AuthenticatedUser {
+  uid?: number;
   displayName: string;
   roleLabel: string;
   avatarChar: string;
@@ -31,10 +32,19 @@ interface LoginPageProps {
   sessionMessage?: string | null;
 }
 
+/** 测试阶段专用账号,仅用于填充登录表单,不自动登录 */
+const ENABLE_QUICK_TEST_LOGIN = import.meta.env.VITE_ENABLE_TEST_LOGIN !== 'false';
+const QUICK_TEST_ACCOUNTS = [
+  { name: '张明', role: '总编', username: 'zhangming@zhentan.org', password: 'Zt@2026Admin' },
+  { name: '王思思', role: '成员', username: 'wangsisi@zhentan.org', password: 'Zt@2026Verify' },
+  { name: '郭老师', role: '老师', username: '10001', password: 'Zt@2026Teach' },
+  { name: '林小满', role: '学生', username: '20260001', password: 'Zt@2026Stu' },
+] as const;
+
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMessage }) => {
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>('login');
-  const [username, setUsername] = useState('zhangming@zhentan.org');
-  const [password, setPassword] = useState('Zt@2026Admin');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
   const [roleLabel, setRoleLabel] = useState('总编');
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
@@ -113,15 +123,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
     try {
       const res = await api.login(username.trim(), password);
       if (res.code === 200 && res.data?.token) {
-        if (rememberMe) {
-          setSavedToken(res.data.token);
-        } else {
-          sessionStorage.setItem(TOKEN_KEY, res.data.token);
-        }
+        setSavedToken(res.data.token, rememberMe);
         const backend = res.data.user;
         const displayName =
           backend?.nickname || validation.displayName || '核查员';
         onLoginSuccess({
+          uid: backend?.uid,
           displayName,
           roleLabel: backend?.roleLabel || validation.roleLabel || '管理员',
           avatarChar: displayName.charAt(0) || '核',
@@ -134,15 +141,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
     }
   };
 
-  const handleQuickFill = (
-    presetUser: string,
-    presetPass: string,
-    presetRole: string
-  ) => {
+  const handleQuickFill = (account: { username: string; password: string; role: string }) => {
     setMode('login');
-    setUsername(presetUser);
-    setPassword(presetPass);
-    setRoleLabel(presetRole);
+    setUsername(account.username);
+    setPassword(account.password);
+    setRoleLabel(account.role);
     setErrorMessage(null);
   };
 
@@ -514,7 +517,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
                     setUsername(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  placeholder="工作室邮箱或教学学号，如 zhangming@zhentan.org"
+                  placeholder="请输入工作室邮箱或教学学号"
                   className="w-full h-10 pl-10 pr-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
                 />
               </div>
@@ -522,27 +525,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
 
             {/* Password */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label
-                  htmlFor="login-password"
-                  className="block text-[12.5px] font-semibold text-slate-700"
-                >
-                  登录密码
-                </label>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickFill(
-                      'zhangming@zhentan.org',
-                      'Zt@2026Admin',
-                      '总编'
-                    )
-                  }
-                  className="text-[11.5px] text-[#2563EB] hover:underline cursor-pointer"
-                >
-                  重置默认凭证
-                </button>
-              </div>
+              <label
+                htmlFor="login-password"
+                className="block text-[12.5px] font-semibold text-slate-700 mb-1.5"
+              >
+                登录密码
+              </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
@@ -803,7 +791,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
                     setFpEmail(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  placeholder="注册时使用的邮箱，如 zhangming@zhentan.org"
+                  placeholder="注册时使用的邮箱"
                   className="w-full h-10 pl-10 pr-3.5 rounded-lg bg-[#F8FAFC] border border-slate-200/90 text-[13px] text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-[#2563EB] focus:bg-white transition-colors"
                 />
               </div>
@@ -922,55 +910,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionMes
           </form>
           )}
 
-          {/* Quick Account Switcher(体验账号,仅登录 tab 显示,方便评审/演示直接进入) */}
-          {mode === 'login' && (
-          <div className="mt-6 pt-5 border-t border-slate-100">
-            <div className="flex items-center justify-between gap-2 text-[11.5px]">
-              <span className="text-slate-400 shrink-0">快捷演示账号：</span>
-              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* 测试阶段快捷入口:点击仅填充表单,仍需主动点击登录 */}
+          {mode === 'login' && ENABLE_QUICK_TEST_LOGIN && (
+            <section
+              aria-labelledby="quick-test-accounts"
+              className="mt-6 pt-5 border-t border-slate-100"
+            >
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div>
+                  <h3
+                    id="quick-test-accounts"
+                    className="text-[12.5px] font-semibold text-slate-700"
+                  >
+                    测试人员快捷入口
+                  </h3>
+                  <p className="mt-0.5 text-[11px] text-slate-400">
+                    测试环境专用 · 点击填充后登录
+                  </p>
+                </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    handleQuickFill('zhangming@zhentan.org', 'Zt@2026Admin', '总编')
-                  }
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-[#2563EB] text-slate-600 font-medium transition-colors cursor-pointer whitespace-nowrap"
+                  onClick={() => handleQuickFill({ role: '成员', username: '', password: '' })}
+                  className="text-[11.5px] text-slate-400 hover:text-slate-600 transition-colors cursor-pointer shrink-0"
                 >
-                  张明 · 总编
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleQuickFill('wangsisi@zhentan.org', 'Zt@2026Verify', '成员')
-                  }
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-[#2563EB] text-slate-600 font-medium transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  王思思 · 成员
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('10001', 'Zt@2026Teach', '老师')}
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-[#2563EB] text-slate-600 font-medium transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  郭老师 · 老师
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('20260001', 'Zt@2026Stu', '学生')}
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-blue-50 hover:text-[#2563EB] text-slate-600 font-medium transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  林小满 · 学生
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill('', '', '总编')}
-                  className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200/80 text-slate-500 transition-colors cursor-pointer whitespace-nowrap"
-                >
-                  清空表单
+                  清空
                 </button>
               </div>
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-2">
+                {QUICK_TEST_ACCOUNTS.map((account) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    data-testid={`quick-login-${account.role}`}
+                    title={`填充 ${account.name} 的测试账号`}
+                    onClick={() => handleQuickFill(account)}
+                    className="min-h-9 px-3 py-2 rounded-lg border border-slate-200/90 bg-slate-50/80 hover:border-blue-200 hover:bg-blue-50/70 hover:text-[#2563EB] text-slate-600 text-[12px] font-medium transition-colors cursor-pointer text-left"
+                  >
+                    <span>{account.name}</span>
+                    <span className="ml-1.5 text-[11px] text-slate-400">
+                      · {account.role}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </section>
           )}
+
         </div>
 
         {/* Bottom Studio Footer */}

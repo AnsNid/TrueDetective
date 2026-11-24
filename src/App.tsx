@@ -88,9 +88,6 @@ function RouteFallback() {
   );
 }
 
-/** 默认演示账号(与后端种子数据一致),供 ?autostart=1 快速进入 */
-const DEMO_ACCOUNT = { username: 'zhangming@zhentan.org', password: 'Zt@2026Admin' };
-
 export default function App() {
   // Router mode: hash by default (works on any static host without SPA fallback);
   // set VITE_ROUTER_MODE=history for clean URLs when the host supports it.
@@ -141,6 +138,9 @@ function AppShell() {
 
   // 顶栏检索建议:输入防抖 300ms 后取前 6 条案件(竞态守卫,旧响应丢弃)
   useEffect(() => {
+    // 关键词一变立即使旧请求失效,避免 300ms 防抖窗口内展示旧结果
+    suggestSeq.current += 1;
+    setHeaderSuggestions([]);
     const kw = searchQuery.trim();
     if (!kw) {
       setHeaderSuggestions([]);
@@ -213,6 +213,7 @@ function AppShell() {
       if (res.code === 200 && res.data) {
         const nickname = res.data.nickname || res.data.username || '成员';
         setCurrentUser({
+          uid: res.data.uid,
           displayName: nickname,
           roleLabel: res.data.roleLabel || '成员',
           avatarChar: nickname.charAt(0) || '核',
@@ -233,31 +234,6 @@ function AppShell() {
       cancelled = true;
     };
   }, [isAuthenticated, authRetry]);
-
-  // ?autostart=1 自动用演示账号登录(保持旧的免登录直达体验)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('autostart') !== '1') return;
-    if (getSavedToken()) {
-      setIsAuthenticated(true);
-      return;
-    }
-    api.login(DEMO_ACCOUNT.username, DEMO_ACCOUNT.password).then((res) => {
-      if (res.code === 200 && res.data?.token) {
-        setSavedToken(res.data.token);
-        setIsAuthenticated(true);
-        if (res.data.user) {
-          const nickname = res.data.user.nickname || res.data.user.username || '张明';
-          setCurrentUser({
-            displayName: nickname,
-            roleLabel: res.data.user.roleLabel || '管理员',
-            avatarChar: nickname.charAt(0) || '张',
-          });
-        }
-      }
-    });
-  }, []);
 
   // 工作台指标只认后端数据,无本地默认兜底;未就绪时工作台显示 loading 骨架
   const currentMetrics = metricsQ.data?.metrics ?? null;
@@ -592,6 +568,7 @@ function CaseDetailRoute({
 
   return (
     <CaseDetailWorkbench
+      key={caseId}
       caseId={caseId}
       currentUser={currentUser}
       onBack={onBack}
