@@ -211,7 +211,7 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
       {/* Card 3: 待人工审核 12 */}
       <section
         aria-label="待人工审核"
-        className="col-span-12 md:col-span-7 lg:col-span-1 bg-white rounded-xl border border-slate-200/75 px-3.5 sm:px-4 py-3 flex flex-col justify-between shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
+        className="col-span-12 md:col-span-7 lg:col-span-1 min-w-0 overflow-hidden bg-white rounded-xl border border-slate-200/75 px-3.5 sm:px-4 py-3 flex flex-col justify-between shadow-[0_1px_2px_rgba(15,23,42,0.03)]"
       >
         <div>
           {/* Header */}
@@ -234,20 +234,19 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
             </button>
           </div>
 
-          {/* Table */}
-          <table className="w-full text-left border-collapse">
+          {/* Table:编号列与案件编号重复,去掉以避免窄屏换行撑开卡片 */}
+          <table className="w-full table-fixed text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-100 text-[10.5px] text-slate-400 font-normal">
-                <th className="pb-1 font-normal w-6">#</th>
-                <th className="pb-1 font-normal">提交人</th>
-                <th className="pb-1 font-normal">案件编号</th>
-                <th className="pb-1 font-normal text-right">剩余时限</th>
+                <th className="pb-1 pr-2 font-normal whitespace-nowrap w-[27%]">提交人</th>
+                <th className="pb-1 pr-2 font-normal whitespace-nowrap w-[48%]">案件编号</th>
+                <th className="pb-1 font-normal text-right whitespace-nowrap w-[25%]">剩余时限</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100/80 text-[11.5px]">
               {pendingReviews.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="py-5 text-center text-slate-400 text-xs">
+                  <td colSpan={3} className="py-5 text-center text-slate-400 text-xs">
                     暂无匹配的待审核案件
                   </td>
                 </tr>
@@ -258,18 +257,17 @@ export const Row1Overview: React.FC<Row1OverviewProps> = ({
                     onClick={() => onSelectReview(item)}
                     className="hover:bg-slate-50/80 transition-colors cursor-pointer"
                   >
-                    <td className="py-1.5 text-slate-400 tabular-nums">{item.id}</td>
-                    <td className="py-1.5">
-                      <div className="flex items-center gap-1.5">
+                    <td className="py-1.5 pr-2 min-w-0 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         <span className="w-4.5 h-4.5 rounded-full bg-blue-50 text-[#2563EB] text-[10px] font-semibold flex items-center justify-center shrink-0">
                           {item.avatarChar}
                         </span>
-                        <span className="text-slate-700 font-medium whitespace-nowrap">
+                        <span className="text-slate-700 font-medium whitespace-nowrap truncate">
                           {item.submitter}
                         </span>
                       </div>
                     </td>
-                    <td className="py-1.5 text-slate-500 font-mono text-[11px] tabular-nums whitespace-nowrap">
+                    <td className="py-1.5 pr-2 text-slate-500 font-mono text-[11px] tabular-nums whitespace-nowrap">
                       {item.caseId}
                     </td>
                     <td className="py-1.5 text-right text-[#EF4444] font-semibold text-[11px] tabular-nums whitespace-nowrap">
